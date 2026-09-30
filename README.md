@@ -15,6 +15,8 @@ PS：本项目正在开发中，是否会提供可直接安装的APK会根据当
 关于i-mode： i-mode（iモード）是由日本DoCoMo公司于1999年推出的日本移动互联网服务，是全球首个允许手机接入互联网并使用多种网络服务的移动互联网服务。为i-mode服务开发的应用程序被称为i-αppli（iアプリ），运行在DoCoMo Java（DoJa）平台上。i-mode网站作为该服务的一部分，提供电子游戏商店服务。i-mode网站已于2021年11月30日关闭。整个i-mode服务则于2026年3月23日正式停止运营。
 
 OpenDoJa For Android(非官方移植)
+
+
 移植：流浪的猎人(Wandering Hunter)
 
 这是“OpenDoJa”的非官方Android移植，由流浪的猎人(Wandering Hunter)使用OpenCode+Xiaomi Mimo V2.6免费版实现移植，这个版本的出现只是因为流浪的猎人自己想在Android掌机上玩这些游戏，然后尝试基于OpenDoJa 0.25版本的源代码实现了移植，本项目的移植不属于“流浪的猎人响应任何白嫖党需求造福人类”的产物，属于流浪的猎人解决部分个人需求之后公开代码。
@@ -89,7 +91,133 @@ OpenDoJa For Android将会遵循GPL V3协议开源所有代码，本项目仅提
 
 
 
-版本号: 20260930 第一个版本，修复了部分图像渲染和API在Android系统调用的BUG，未完全修复GUNDAM U.C 0079的FPS异常BUG和怪物猎人i的一些图像BUG，可能有一些游戏仍然存在BUG。
+版本号:
+
+
+
+20260930 
+
+
+
+第一个版本，修复了部分图像渲染和API在Android系统调用的BUG，未完全修复GUNDAM U.C 0079的FPS异常BUG和怪物猎人i的一些图像BUG，可能有一些游戏仍然存在BUG。
+
+
+
+       OpenDoJa For Android（非官方移植）—— 构建 APK 说明
+
+
+
+一、环境要求
+------------------------------------------------------------------------
+
+1. JDK 17 或以上（推荐使用 Android Studio 自带的 jbr 目录，或 JDK 17/21）
+2. Android SDK，且已安装 Android SDK Platform 34
+   （可用 Android Studio 的 SDK Manager 安装，或命令行：
+    sdkmanager "platforms;android-34"）
+3. 首次编译需要联网：自动下载 Gradle 8.13 发行版、AGP 8.13.2 及依赖
+   （数百 MB 级）
+4. 可选：adb（用于把编译好的 APK 安装到手机）
+
+------------------------------------------------------------------------
+
+二、获取代码
+------------------------------------------------------------------------
+
+方式一：git 克隆
+
+    git clone https://github.com/liulang-delieren/OpenDoJa-for-Android-Unofficial-Port-.git
+    cd OpenDoJa-for-Android-Unofficial-Port-
+
+方式二：在 GitHub 页面点击 Code -> Download ZIP，解压后进入目录。
+
+------------------------------------------------------------------------
+
+三、配置 Android SDK 路径（二选一）
+------------------------------------------------------------------------
+
+方式 1：在项目根目录新建文件 local.properties（内容如下，该文件已被
+.gitignore 忽略，不会提交到仓库）：
+
+    # Windows
+    sdk.dir=C:/Users/你的用户名/AppData/Local/Android/Sdk
+    
+    # macOS / Linux 示例
+    # sdk.dir=/Users/用户名/Library/Android/sdk
+
+方式 2：设置环境变量 ANDROID_HOME（或 ANDROID_SDK_ROOT），指向 SDK 目录，
+        此时不需要 local.properties 文件。
+
+------------------------------------------------------------------------
+
+四、编译 APK
+------------------------------------------------------------------------
+
+Windows（CMD 或 PowerShell），在项目根目录执行：
+
+    gradlew.bat assembleDebug
+
+macOS / Linux，在项目根目录执行：
+
+    chmod +x gradlew          # 仅首次需要
+    ./gradlew assembleDebug
+
+等待出现 BUILD SUCCESSFUL 即成功，编译产物路径：
+
+    app/build/outputs/apk/debug/app-debug.apk
+
+说明：
+
+- 产物为 debug 签名 APK（使用本机 ~/.android/debug.keystore），可直接
+  安装到手机。如需发布正式版，请自行在 app/build.gradle 配置
+  signingConfig 并使用你自己的 keystore。
+- 仓库中的 run-build.cmd 和 run-build-nolog.cmd 是作者电脑专用的快捷
+  脚本（写死了作者机器上的 Gradle 和 JDK 路径），其他电脑请直接使用
+  上面的 gradlew 命令，或打开脚本修改开头几行路径后再用。
+
+------------------------------------------------------------------------
+
+五、安装（可选）
+------------------------------------------------------------------------
+
+    adb install -r app\build\outputs\apk\debug\app-debug.apk
+
+系统要求：Android 9.0（API 28）及以上。
+
+------------------------------------------------------------------------
+
+六、编译常见问题
+------------------------------------------------------------------------
+
+1. 报错 SDK location not found
+   -> 按第三节配置 local.properties 的 sdk.dir 或设置 ANDROID_HOME。
+
+2. 报错 Failed to find target with hash string 'android-34'
+   -> 用 SDK Manager 安装 Android SDK Platform 34。
+
+3. 报错 Java 版本问题（invalid source release、
+   Unsupported class file major version 等）
+   -> 把 JAVA_HOME 指向 JDK 17+；Android Studio 用户可指向其安装目录
+      下的 jbr 文件夹。
+
+4. 依赖下载失败或很慢
+   -> settings.gradle 开头把阿里云镜像放在最前面；若你的网络访问不了
+      阿里云，删除其中 maven.aliyun.com 的几行即可，后面已经有
+      google() 和 mavenCentral() 兜底。
+
+5. 编译成功但游戏内文字乱码（移植特性说明）
+   -> 不要升级 targetSdk，必须保持 30，原因见 app/build.gradle 中的
+      注释。
+
+6. 本项目不内置任何游戏，安装后通过应用内 右上角⋮ -> 加载JAM 导入
+   .jam / .jar 游戏文件。
+
+========================================================================
+
+
+
+
+
+
 
 
 

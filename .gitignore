@@ -1,0 +1,22 @@
+# Gradle / Android build outputs
+.gradle/
+build/
+out/
+local.properties
+
+# IDE
+.idea/
+*.iml
+
+# Logs & dev intermediate outputs
+*.log
+*.err
+*.out
+javap-all.txt
+jdk-api-sigs.txt
+jdk-sigs-all.txt
+jdk-sound-sigs.txt
+sources.list
+sources17.list
+stdin-feed.txt
+awt-members.tsv

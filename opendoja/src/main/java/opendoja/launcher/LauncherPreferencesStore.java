@@ -1,0 +1,221 @@
+package opendoja.launcher;
+
+import opendoja.host.HostKeybindConfiguration;
+import opendoja.host.HostKeybindProfile;
+import opendoja.host.OpenDoJaIdentity;
+import opendoja.host.OpenDoJaLaunchArgs;
+import opendoja.host.OpenGlesRendererMode;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.prefs.Preferences;
+
+final class LauncherPreferencesStore {
+    private static final int MAX_RECENTS = 12;
+    private static final String HOST_SCALE_KEY = "hostScale";
+    private static final String SYNTH_ID_KEY = "synthId";
+    private static final String TERMINAL_ID_KEY = "terminalId";
+    private static final String USER_ID_KEY = "userId";
+    private static final String FONT_TYPE_KEY = "fontType";
+    private static final String SYSTEM_FONT_OVERRIDE_KEY = "systemFontOverride";
+    private static final String HTTP_OVERRIDE_DOMAIN_KEY = "httpOverrideDomain";
+    private static final String FILE_ENCODING_OVERRIDE_KEY = "fileEncodingOverride";
+    private static final String MICROEDITION_PLATFORM_OVERRIDE_KEY = "microeditionPlatformOverride";
+    private static final String LAUNCH_TYPE_KEY = "launchType";
+    private static final String OPEN_GLES_RENDERER_KEY = "openGlesRenderer";
+    private static final String SHOW_OPEN_GLES_FPS_KEY = "showOpenGlesFps";
+    private static final String OPEN_GLES_SUPERSAMPLE_SCALE_KEY = "openGlesSupersampleScale";
+    private static final String DISABLE_BYTECODE_VERIFICATION_KEY = "disableBytecodeVerification";
+    private static final String DISABLE_OS_DPI_SCALING_KEY = "disableOsDpiScaling";
+    private static final String KEYBIND_PROFILE_COUNT_KEY = "keybindProfileCount";
+    private static final String KEYBIND_ACTIVE_PROFILE_INDEX_KEY = "keybindActiveProfileIndex";
+    private static final String KEYBIND_PROFILE_KEY_PREFIX = "keybindProfile.";
+    private static final String KEYBIND_PROFILE_NAME_KEY_PREFIX = "keybindProfileName.";
+    private static final String UPDATE_NOTIFICATIONS_PROMPTED_KEY = "updateNotificationsPrompted";
+    private static final String UPDATE_NOTIFICATIONS_ENABLED_KEY = "updateNotificationsEnabled";
+    private static final String LAST_DIRECTORY_KEY = "lastDirectory";
+    private static final String RECENT_JAM_KEY_PREFIX = "recentJam.";
+    private static final String DISPLAY_ROTATION_KEY = "displayRotation";
+
+    private final Preferences preferences = Preferences.userNodeForPackage(OpenDoJaLauncher.class);
+
+    LauncherSettings loadSettings() {
+        String storedHostScale = preferences.get(HOST_SCALE_KEY, OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.HOST_SCALE));
+        String storedDisplayRotation = preferences.get(DISPLAY_ROTATION_KEY, OpenDoJaLaunchArgs.displayRotation());
+        String storedSynthId = preferences.get(SYNTH_ID_KEY, OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.MLD_SYNTH));
+        String storedTerminalId = preferences.get(TERMINAL_ID_KEY, OpenDoJaIdentity.defaultTerminalId());
+        String storedUserId = preferences.get(USER_ID_KEY, OpenDoJaIdentity.defaultUserId());
+        String storedFontType = preferences.get(FONT_TYPE_KEY, OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.FONT_TYPE));
+        String storedSystemFontOverride = preferences.get(SYSTEM_FONT_OVERRIDE_KEY, OpenDoJaLaunchArgs.systemFontOverride());
+        String storedHttpOverrideDomain = preferences.get(HTTP_OVERRIDE_DOMAIN_KEY,
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.HTTP_OVERRIDE_DOMAIN, ""));
+        String storedFileEncodingOverride = preferences.get(FILE_ENCODING_OVERRIDE_KEY, "");
+        String storedMicroeditionPlatformOverride = preferences.get(MICROEDITION_PLATFORM_OVERRIDE_KEY,
+                OpenDoJaLaunchArgs.microeditionPlatformOverride());
+        String storedLaunchType = preferences.get(LAUNCH_TYPE_KEY, OpenDoJaLaunchArgs.launchType());
+        OpenGlesRendererMode storedOpenGlesRendererMode = OpenGlesRendererMode.fromId(
+                preferences.get(OPEN_GLES_RENDERER_KEY, OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.OPEN_GLES_RENDERER)));
+        boolean storedShowOpenGlesFps = preferences.getBoolean(SHOW_OPEN_GLES_FPS_KEY,
+                OpenDoJaLaunchArgs.getBoolean(OpenDoJaLaunchArgs.SHOW_OPEN_GLES_FPS));
+        int storedOpenGlesSupersampleScale = preferences.getInt(OPEN_GLES_SUPERSAMPLE_SCALE_KEY,
+                OpenDoJaLaunchArgs.openGlesSupersampleScale());
+        boolean storedDisableBytecodeVerification = preferences.getBoolean(DISABLE_BYTECODE_VERIFICATION_KEY, false);
+        boolean storedDisableOsDpiScaling = preferences.getBoolean(DISABLE_OS_DPI_SCALING_KEY, false);
+        HostKeybindConfiguration storedKeybindConfiguration = loadKeybindConfiguration();
+        HostKeybindProfile overriddenKeybindProfile = HostKeybindProfile.deserialize(
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.INPUT_BINDINGS, ""));
+        if (overriddenKeybindProfile != null) {
+            storedKeybindConfiguration = storedKeybindConfiguration.withProfile(
+                    storedKeybindConfiguration.activeProfileIndex(),
+                    overriddenKeybindProfile);
+        }
+        return new LauncherSettings(
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.HOST_SCALE, storedHostScale),
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.DISPLAY_ROTATION, storedDisplayRotation),
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.MLD_SYNTH, storedSynthId),
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.TERMINAL_ID, storedTerminalId),
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.USER_ID, storedUserId),
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.FONT_TYPE, storedFontType),
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.SYSTEM_FONT_OVERRIDE, storedSystemFontOverride),
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.HTTP_OVERRIDE_DOMAIN, storedHttpOverrideDomain),
+                storedFileEncodingOverride,
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.MICROEDITION_PLATFORM_OVERRIDE, storedMicroeditionPlatformOverride),
+                OpenGlesRendererMode.fromId(OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.OPEN_GLES_RENDERER, storedOpenGlesRendererMode.id())),
+                OpenDoJaLaunchArgs.getBoolean(OpenDoJaLaunchArgs.SHOW_OPEN_GLES_FPS, storedShowOpenGlesFps),
+                storedDisableBytecodeVerification,
+                storedDisableOsDpiScaling,
+                OpenDoJaLaunchArgs.getInt(OpenDoJaLaunchArgs.OPEN_GLES_SUPERSAMPLE_SCALE, storedOpenGlesSupersampleScale),
+                OpenDoJaLaunchArgs.get(OpenDoJaLaunchArgs.LAUNCH_TYPE, storedLaunchType),
+                storedKeybindConfiguration);
+    }
+
+    void saveSettings(LauncherSettings settings) {
+        preferences.put(HOST_SCALE_KEY, settings.hostScale());
+        preferences.put(DISPLAY_ROTATION_KEY, settings.displayRotation());
+        preferences.put(SYNTH_ID_KEY, settings.synthId());
+        preferences.put(TERMINAL_ID_KEY, settings.terminalId());
+        preferences.put(USER_ID_KEY, settings.userId());
+        preferences.put(FONT_TYPE_KEY, settings.fontType());
+        preferences.put(SYSTEM_FONT_OVERRIDE_KEY, settings.systemFontOverride());
+        preferences.put(HTTP_OVERRIDE_DOMAIN_KEY, settings.httpOverrideDomain());
+        preferences.put(FILE_ENCODING_OVERRIDE_KEY, settings.fileEncodingOverride());
+        preferences.put(MICROEDITION_PLATFORM_OVERRIDE_KEY, settings.microeditionPlatformOverride());
+        preferences.put(LAUNCH_TYPE_KEY, settings.launchType());
+        preferences.put(OPEN_GLES_RENDERER_KEY, settings.openGlesRendererMode().id());
+        preferences.putBoolean(SHOW_OPEN_GLES_FPS_KEY, settings.showOpenGlesFps());
+        preferences.putInt(OPEN_GLES_SUPERSAMPLE_SCALE_KEY, settings.openGlesSupersampleScale());
+        preferences.putBoolean(DISABLE_BYTECODE_VERIFICATION_KEY, settings.disableBytecodeVerification());
+        preferences.putBoolean(DISABLE_OS_DPI_SCALING_KEY, settings.disableOsDpiScaling());
+        saveKeybindConfiguration(settings.keybindConfiguration());
+    }
+
+    boolean shouldPromptForUpdateNotifications() {
+        return !preferences.getBoolean(UPDATE_NOTIFICATIONS_PROMPTED_KEY, false);
+    }
+
+    boolean updateNotificationsEnabled() {
+        return preferences.getBoolean(UPDATE_NOTIFICATIONS_ENABLED_KEY, false);
+    }
+
+    void saveUpdateNotificationsPreference(boolean enabled) {
+        preferences.putBoolean(UPDATE_NOTIFICATIONS_PROMPTED_KEY, true);
+        preferences.putBoolean(UPDATE_NOTIFICATIONS_ENABLED_KEY, enabled);
+    }
+
+    Path lastDirectory() {
+        String raw = preferences.get(LAST_DIRECTORY_KEY, null);
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        return Path.of(raw).toAbsolutePath().normalize();
+    }
+
+    void rememberLastDirectory(Path directory) {
+        if (directory == null) {
+            preferences.remove(LAST_DIRECTORY_KEY);
+            return;
+        }
+        preferences.put(LAST_DIRECTORY_KEY, directory.toAbsolutePath().normalize().toString());
+    }
+
+    List<Path> recentJamPaths() {
+        List<Path> recents = new ArrayList<>(MAX_RECENTS);
+        for (int i = 0; i < MAX_RECENTS; i++) {
+            String raw = preferences.get(RECENT_JAM_KEY_PREFIX + i, null);
+            if (raw == null || raw.isBlank()) {
+                continue;
+            }
+            recents.add(Path.of(raw).toAbsolutePath().normalize());
+        }
+        return List.copyOf(recents);
+    }
+
+    void rememberLaunchedJam(Path jamPath) {
+        Path normalized = jamPath.toAbsolutePath().normalize();
+        rememberLastDirectory(normalized.getParent());
+
+        LinkedHashSet<Path> updated = new LinkedHashSet<>();
+        updated.add(normalized);
+        updated.addAll(recentJamPaths());
+
+        int index = 0;
+        for (Path recent : updated) {
+            if (index >= MAX_RECENTS) {
+                break;
+            }
+            preferences.put(RECENT_JAM_KEY_PREFIX + index, recent.toString());
+            index++;
+        }
+        while (index < MAX_RECENTS) {
+            preferences.remove(RECENT_JAM_KEY_PREFIX + index);
+            index++;
+        }
+    }
+
+    void removeRecentJam(Path jamPath) {
+        Path normalized = jamPath.toAbsolutePath().normalize();
+        List<Path> filtered = recentJamPaths().stream()
+                .filter(path -> !path.equals(normalized))
+                .toList();
+        for (int i = 0; i < MAX_RECENTS; i++) {
+            preferences.remove(RECENT_JAM_KEY_PREFIX + i);
+        }
+        for (int i = 0; i < filtered.size() && i < MAX_RECENTS; i++) {
+            preferences.put(RECENT_JAM_KEY_PREFIX + i, filtered.get(i).toString());
+        }
+    }
+
+    private HostKeybindConfiguration loadKeybindConfiguration() {
+        int storedProfileCount = Math.clamp(
+                preferences.getInt(KEYBIND_PROFILE_COUNT_KEY, HostKeybindConfiguration.MIN_PROFILES),
+                HostKeybindConfiguration.MIN_PROFILES,
+                HostKeybindConfiguration.MAX_PROFILES);
+        ArrayList<HostKeybindProfile> profiles = new ArrayList<>(storedProfileCount);
+        ArrayList<String> profileNames = new ArrayList<>(storedProfileCount);
+        for (int index = 0; index < storedProfileCount; index++) {
+            HostKeybindProfile profile = HostKeybindProfile.deserialize(
+                    preferences.get(KEYBIND_PROFILE_KEY_PREFIX + index, ""));
+            profiles.add(profile == null ? HostKeybindProfile.defaults() : profile);
+            profileNames.add(preferences.get(KEYBIND_PROFILE_NAME_KEY_PREFIX + index, null));
+        }
+        return new HostKeybindConfiguration(
+                profiles,
+                profileNames,
+                preferences.getInt(KEYBIND_ACTIVE_PROFILE_INDEX_KEY, 0));
+    }
+
+    private void saveKeybindConfiguration(HostKeybindConfiguration configuration) {
+        preferences.putInt(KEYBIND_PROFILE_COUNT_KEY, configuration.profiles().size());
+        preferences.putInt(KEYBIND_ACTIVE_PROFILE_INDEX_KEY, configuration.activeProfileIndex());
+        for (int index = 0; index < configuration.profiles().size(); index++) {
+            preferences.put(KEYBIND_PROFILE_KEY_PREFIX + index, configuration.profiles().get(index).serialize());
+            preferences.put(KEYBIND_PROFILE_NAME_KEY_PREFIX + index, configuration.profileNames().get(index));
+        }
+        for (int index = configuration.profiles().size(); index < HostKeybindConfiguration.MAX_PROFILES; index++) {
+            preferences.remove(KEYBIND_PROFILE_KEY_PREFIX + index);
+            preferences.remove(KEYBIND_PROFILE_NAME_KEY_PREFIX + index);
+        }
+    }
+}

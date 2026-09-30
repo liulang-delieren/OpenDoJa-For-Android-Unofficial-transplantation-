@@ -1,0 +1,49 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'opendoja.android'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.liulangdelieren.opendoja'
+        minSdk 28
+        // 30 keeps java.nio.charset.Charset->defaultCharset (max-target-r) visible to
+        // reflection so installDefaultCharsetOverride() can fix new String(byte[]) mojibake.
+        targetSdk 30
+        versionCode 1
+        versionName '0.2.5-port.1'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+        coreLibraryDesugaringEnabled true
+    }
+
+    sourceSets {
+        main {
+            java {
+                srcDirs = ["${rootDir}/opendoja/src/main/java", "${projectDir}/src/main/java"]
+                exclude 'opendoja/launcher/**'
+                exclude 'opendoja/probes/**'
+                exclude 'opendoja/tools/**'
+                exclude 'opendoja/host/input/ControllerInputManagerProbe.java'
+            }
+            resources {
+                srcDirs = ["${rootDir}/opendoja/src/main/resources"]
+            }
+        }
+    }
+}
+
+dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
+    implementation project(':dexlib')
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xmaxerrs', '10000']
+}

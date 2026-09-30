@@ -1,0 +1,239 @@
+// -*- Mode: Java; indent-tabs-mode: nil; tab-width: 4 -*-
+// ---------------------------------------------------------------------------
+// Keitai Wiki Community Music Implementation
+//     Originally written and contributed by Guy Perfect
+//     Continued maintenance and upkeep by SquirrelJME/Stephanie Gawroriski
+// ---------------------------------------------------------------------------
+// This specific file is under the given license:
+// This is free and unencumbered software released into the public domain.
+//
+// Anyone is free to copy, modify, publish, use, compile, sell, or
+// distribute this software, either in source code form or as a compiled
+// binary, for any purpose, commercial or non-commercial, and by any
+// means.
+//
+// In jurisdictions that recognize copyright laws, the author or authors
+// of this software dedicate any and all copyright interest in the
+// software to the public domain. We make this dedication for the benefit
+// of the public at large and to the detriment of our heirs and
+// successors. We intend this dedication to be an overt act of
+// relinquishment in perpetuity of all present and future rights to this
+// software under copyright law.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+// IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+// OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+// ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+// OTHER DEALINGS IN THE SOFTWARE.
+//
+// For more information, please refer to <https://unlicense.org/>
+// ---------------------------------------------------------------------------
+
+package opendoja.audio.mld;
+
+
+
+/**
+ * Sequencer event data class
+ */
+public class MLDEvent
+{
+    /**
+     * ext-B fields
+     */
+    int bank;
+
+    /**
+     * Normalized channel ID, out of 16
+     */
+    int channel;
+
+    /**
+     * Note fields
+     * Channel index 0..3 within parent track
+     */
+    int channelIndex;
+
+    int cuepoint;
+
+    /**
+     * ext-info and unknown event data
+     */
+    byte[] data;
+
+    /**
+     * Time delta: number of ticks since last event
+     */
+    int delta;
+
+    /**
+     * Raw stream offset immediately after the bytes that belong to this event.
+     */
+    int endOffset;
+
+    boolean enable;
+
+    /**
+     * Number of ticks until note off
+     */
+    int gateTime;
+
+    /**
+     * Meta event ID
+     */
+    int id;
+
+    int jumpCount;
+
+    int jumpId;
+
+    int jumpPoint;
+
+    int extraParam2x = -1;
+
+    /**
+     * Normalized key ID, relative to A4
+     */
+    int key;
+
+    /**
+     * Base key index
+     */
+    int keyNumber;
+
+    /**
+     * Number of octaves to adjust keyNumber
+     */
+    int octaveShift;
+
+    /**
+     * Location in MLD asset
+     */
+    int offset;
+
+    int resourceIndex = -1;
+
+    int resourcePitchByte = -1;
+
+    int resourceAuxStrength = -1;
+
+    int resourceAuxAzimuthDegrees = Integer.MIN_VALUE;
+
+    int resourceAuxElevationDegrees = Integer.MIN_VALUE;
+
+    int resourceAuxDurationRaw = -1;
+
+    boolean resourceAudioTarget;
+
+    boolean resourceConfigClear;
+
+    int resourceConfigRawValue = -1;
+
+    float panpot;
+
+    /**
+     * Event parameter bits
+     */
+    int param;
+
+    int program;
+
+    float range;
+
+    float semitones;
+
+    /**
+     * note-status, second byte of event data
+     */
+    int status;
+
+    int tempo;
+
+    int timebase;
+
+    /**
+     * Event category
+     */
+    int type;
+
+    int value2x = -1;
+
+    /**
+     * Base volume
+     */
+    float velocity;
+
+    float volume;
+
+    public int getChannel()
+    {
+        return this.channel;
+    }
+
+    public int getChannelIndex()
+    {
+        return this.channelIndex;
+    }
+
+    public int getId()
+    {
+        return this.id;
+    }
+
+    public int getResourceAuxAzimuthDegrees()
+    {
+        return this.resourceAuxAzimuthDegrees;
+    }
+
+    public int getResourceAuxDurationRaw()
+    {
+        return this.resourceAuxDurationRaw;
+    }
+
+    public int getResourceAuxElevationDegrees()
+    {
+        return this.resourceAuxElevationDegrees;
+    }
+
+    public int getResourceAuxStrength()
+    {
+        return this.resourceAuxStrength;
+    }
+
+    public boolean getResourceAudioTarget()
+    {
+        return this.resourceAudioTarget;
+    }
+
+    public boolean getResourceConfigClear()
+    {
+        return this.resourceConfigClear;
+    }
+
+    public int getResourceConfigRawValue()
+    {
+        return this.resourceConfigRawValue;
+    }
+
+    public int getResourceIndex()
+    {
+        return this.resourceIndex;
+    }
+
+    public int getResourcePitchByte()
+    {
+        return this.resourcePitchByte;
+    }
+
+    public int getParam()
+    {
+        return this.param;
+    }
+
+    public int getValue2x()
+    {
+        return this.value2x;
+    }
+}

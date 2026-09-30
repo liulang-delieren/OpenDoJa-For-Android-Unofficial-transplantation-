@@ -1,0 +1,816 @@
+package opendoja.audio.mld;
+
+import com.nttdocomo.ui.MediaManager;
+import opendoja.audio.mld.fuetrek.FueTrekSamplerProvider;
+import opendoja.audio.mld.ma3.MA3SamplerProvider;
+
+import opendoja.compat.sound.sampled.AudioFormat;
+import opendoja.compat.sound.sampled.AudioSystem;
+import opendoja.compat.sound.sampled.SourceDataLine;
+import java.util.ArrayList;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Map;
+
+public final class MLDPCMPlayer implements AutoCloseable {
+    private static final MA3SamplerProvider MA3_SAMPLER_PROVIDER = new MA3SamplerProvider(
+            MA3SamplerProvider.FM_MA3_4OP,
+            MA3SamplerProvider.FM_MA3_4OP,
+            MA3SamplerProvider.WAVE_DRUM_MA3);
+    private static final FueTrekSamplerProvider FUETREK_SAMPLER_PROVIDER = new FueTrekSamplerProvider();
+    private static final SynthProfile SYNTH_PROFILE = resolveSynthProfile();
+    private static final float DEFAULT_SAMPLE_RATE =
+            opendoja.host.OpenDoJaLaunchArgs.getFloat(opendoja.host.OpenDoJaLaunchArgs.MLD_SAMPLE_RATE);
+    private static final int BUFFER_FRAMES = normalizeBufferFrames(
+            opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.MLD_BUFFER_FRAMES),
+            SYNTH_PROFILE.defaultBufferFrames);
+    private static final int LINE_BUFFER_FRAMES =
+            opendoja.host.OpenDoJaLaunchArgs.getInt(opendoja.host.OpenDoJaLaunchArgs.MLD_LINE_BUFFER_FRAMES, BUFFER_FRAMES * 4);
+    private static final AudioFormat OUTPUT_FORMAT = new AudioFormat(
+            DEFAULT_SAMPLE_RATE, 16, 2, true, false);
+    private static final SamplerProvider SAMPLER_PROVIDER = SYNTH_PROFILE.samplerProvider;
+    private static final SharedEngine ENGINE = new SharedEngine();
+    private static final java.util.concurrent.atomic.AtomicLong HANDLE_GENERATION =
+            new java.util.concurrent.atomic.AtomicLong();
+
+    /** Called at each game launch so a later game's handles can never be
+     *  released by an earlier game's delayed exit cleanup. */
+    public static long bumpGeneration() {
+        return HANDLE_GENERATION.incrementAndGet();
+    }
+
+    /** Game-exit escape hatch: force-close every handle up to the given
+     *  generation so stale BGM can never keep playing into the next game. */
+    public static void releaseGenerationsUpTo(long generation) {
+        ENGINE.releaseGenerationsUpTo(generation);
+    }
+
+    public interface Listener {
+        void onLoop(long playbackToken);
+
+        void onSync(int timeMillis, long playbackToken);
+
+        void onComplete(long playbackToken);
+
+        void onFailure(Exception exception, long playbackToken);
+    }
+
+    private final PlaybackHandle handle;
+
+    public MLDPCMPlayer(Listener listener) {
+        this.handle = ENGINE.open(listener);
+    }
+
+    public void start(MediaManager.PreparedSound sound, int loopCount, int startPositionMillis,
+                      float playbackRate, long playbackToken) {
+        handle.start(sound, loopCount, startPositionMillis, playbackRate, playbackToken);
+    }
+
+    public void pause() {
+        handle.pause();
+    }
+
+    public void restart() {
+        handle.restart();
+    }
+
+    public int getCurrentTimeMillis() {
+        return handle.getCurrentTimeMillis();
+    }
+
+    public int getTotalTimeMillis() {
+        return handle.getTotalTimeMillis();
+    }
+
+    public void setVolumeLevel(int volumeLevel) {
+        handle.setVolumeLevel(volumeLevel);
+    }
+
+    public void setPlaybackRate(float playbackRate) {
+        handle.setPlaybackRate(playbackRate);
+    }
+
+    public void setSyncEvent(int channel, int key) {
+        handle.setSyncEvent(channel, key);
+    }
+
+    public void clearSyncEvent() {
+        handle.clearSyncEvent();
+    }
+
+    public void stop() {
+        handle.stop();
+    }
+
+    @Override
+    public void close() {
+        handle.close();
+    }
+
+    private static SynthProfile resolveSynthProfile() {
+        return switch (MLDSynth.resolveConfigured()) {
+            case FUETREK -> new SynthProfile(
+                    MLDSynth.FUETREK,
+                    FUETREK_SAMPLER_PROVIDER,
+                    FueTrekSamplerProvider.SAMPLE_RATE,
+                    1024);
+            case MA3 -> new SynthProfile(
+                    MLDSynth.MA3,
+                    MA3_SAMPLER_PROVIDER,
+                    MA3SamplerProvider.SAMPLE_RATE,
+                    1024);
+        };
+    }
+
+    private static int normalizeBufferFrames(int candidate, int fallback) {
+        int frames = candidate <= 0 ? fallback : candidate;
+        if (SYNTH_PROFILE.synth != MLDSynth.FUETREK) {
+            return frames;
+        }
+        int clamped = Math.max(FueTrekSamplerProvider.MIN_FRAME_SIZE,
+                Math.min(FueTrekSamplerProvider.MAX_FRAME_SIZE, frames));
+        int mask = FueTrekSamplerProvider.FRAME_GRANULARITY - 1;
+        return (clamped + mask) & ~mask;
+    }
+
+    private static int totalTimeFor(MLD mld) {
+        double baseSeconds = mld.getDuration(true);
+        if (!Double.isFinite(baseSeconds)) {
+            return 0;
+        }
+        return (int) Math.round(baseSeconds * 1000.0);
+    }
+
+    private static final class SharedEngine {
+        private final Object engineLock = new Object();
+        private final List<PlaybackHandle> handles = new ArrayList<>();
+        private final float[] mixBuffer = new float[BUFFER_FRAMES * 2];
+        private final float[] sessionBuffer = new float[BUFFER_FRAMES * 2];
+        private final byte[] pcmBuffer = new byte[BUFFER_FRAMES * 4];
+
+        private volatile Thread worker;
+        private SourceDataLine line;
+        private long writtenFrames;
+        private boolean silentClock;
+        private long lineRetryDeadlineMillis;
+
+        PlaybackHandle open(Listener listener) {
+            PlaybackHandle handle = new PlaybackHandle(this, listener, HANDLE_GENERATION.get());
+            synchronized (engineLock) {
+                handles.add(handle);
+                ensureWorker();
+                engineLock.notifyAll();
+            }
+            return handle;
+        }
+
+        void wake() {
+            synchronized (engineLock) {
+                ensureWorker();
+                engineLock.notifyAll();
+            }
+        }
+
+        /** Closes and drops every handle created at or before {@code generation}. */
+        void releaseGenerationsUpTo(long generation) {
+            int released = 0;
+            synchronized (engineLock) {
+                for (int i = handles.size() - 1; i >= 0; i--) {
+                    PlaybackHandle handle = handles.get(i);
+                    if (handle.generation <= generation) {
+                        handle.close();
+                        handles.remove(i);
+                        released++;
+                    }
+                }
+                if (handles.isEmpty()) {
+                    closeLineLocked();
+                    silentClock = false;
+                    lineRetryDeadlineMillis = 0L;
+                }
+                engineLock.notifyAll();
+            }
+            if (released > 0) {
+                opendoja.host.OpenDoJaLog.debug(MLDPCMPlayer.class,
+                        "released " + released + " stale MLD handle(s), generation <= " + generation);
+            }
+        }
+
+        private void ensureWorker() {
+            Thread existing = worker;
+            if (existing != null && existing.isAlive()) {
+                return;
+            }
+            worker = new Thread(this::runLoop, "opendoja-mld-" + SYNTH_PROFILE.id);
+            worker.setDaemon(true);
+            worker.start();
+        }
+
+        private void runLoop() {
+            try {
+                while (true) {
+                    runIteration();
+                }
+            } catch (Throwable throwable) {
+                opendoja.host.OpenDoJaLog.error(
+                        MLDPCMPlayer.class, "shared MLD engine worker died", throwable);
+                try {
+                    Thread.sleep(100L);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
+            } finally {
+                synchronized (engineLock) {
+                    if (Thread.currentThread() == worker) {
+                        worker = null;
+                    }
+                    engineLock.notifyAll();
+                }
+            }
+        }
+
+        private void runIteration() {
+            List<PlaybackHandle> snapshot;
+            synchronized (engineLock) {
+                while (handles.isEmpty() || !hasRunnableHandleLocked()) {
+                    pruneClosedHandlesLocked();
+                    if (handles.isEmpty()) {
+                        closeLineLocked();
+                    }
+                    try {
+                        engineLock.wait();
+                    } catch (InterruptedException ignored) {
+                        // The host interrupts non-game threads while a game
+                        // exits; this engine is shared by every game in the
+                        // process and must survive those interrupts.
+                    }
+                }
+                snapshot = new ArrayList<>(handles);
+            }
+
+            List<Runnable> notifications = new ArrayList<>();
+            long writtenBefore = writtenFrames;
+            int mixedFrames = 0;
+            for (PlaybackHandle handle : snapshot) {
+                try {
+                    int frames = handle.renderInto(sessionBuffer, BUFFER_FRAMES, notifications);
+                    if (frames <= 0) {
+                        continue;
+                    }
+                    mixedFrames = Math.max(mixedFrames, frames);
+                    for (int i = 0; i < frames * 2; i++) {
+                        mixBuffer[i] += sessionBuffer[i];
+                    }
+                } catch (Exception exception) {
+                    handle.fail(exception, notifications);
+                }
+            }
+
+            if (mixedFrames > 0) {
+                try {
+                    boolean silent = silentClock &&
+                            System.currentTimeMillis() < lineRetryDeadlineMillis;
+                    if (silent) {
+                        paceSilently(mixedFrames);
+                    } else {
+                        ensureLine();
+                        int length = encodePcm(mixedFrames);
+                        line.write(pcmBuffer, 0, length);
+                    }
+                    writtenFrames += mixedFrames;
+                } catch (IllegalArgumentException |
+                         opendoja.compat.sound.sampled.LineUnavailableException exception) {
+                    synchronized (engineLock) {
+                        closeLineLocked();
+                        // Some hosts cannot open the requested line format.
+                        // Keep advancing the shared clock so timed MLD events
+                        // still fire instead of aborting playback outright.
+                        // The failure may also be transient (the previous game
+                        // just released the device), so retry opening later
+                        // instead of staying silent forever.
+                        silentClock = true;
+                        lineRetryDeadlineMillis = System.currentTimeMillis() + 2000L;
+                    }
+                    paceSilently(mixedFrames);
+                    writtenFrames += mixedFrames;
+                } catch (Exception exception) {
+                    synchronized (engineLock) {
+                        closeLineLocked();
+                    }
+                    for (PlaybackHandle handle : snapshot) {
+                        handle.fail(exception, notifications);
+                    }
+                }
+            }
+
+            long playedFrames;
+            synchronized (engineLock) {
+                playedFrames = (line == null ? writtenFrames :
+                        line.getLongFramePosition());
+            }
+            // Complete MLD playback only after the shared line has
+            // consumed the final queued frames for that session.
+            for (PlaybackHandle handle : snapshot) {
+                handle.bindCompletionTarget(writtenBefore, writtenFrames);
+                handle.dispatchReadyCompletion(playedFrames, notifications);
+            }
+
+            for (Runnable notification : notifications) {
+                try {
+                    notification.run();
+                } catch (Throwable throwable) {
+                    // A game callback must never kill the shared engine worker:
+                    // every later game in this process depends on it.
+                    opendoja.host.OpenDoJaLog.error(
+                            MLDPCMPlayer.class, "MLD listener callback failed", throwable);
+                }
+            }
+            long drainWaitMillis = mixedFrames == 0 ?
+                drainPollMillis(writtenFrames, playedFrames) : 0L;
+
+            synchronized (engineLock) {
+                pruneClosedHandlesLocked();
+                if (handles.isEmpty()) {
+                    closeLineLocked();
+                } else if (drainWaitMillis > 0L) {
+                    try {
+                        engineLock.wait(drainWaitMillis);
+                    } catch (InterruptedException ignored) {
+                        // See the wait() above: shared engine survives exit.
+                    }
+                }
+            }
+        }
+
+        private boolean hasRunnableHandleLocked() {
+            for (PlaybackHandle handle : handles) {
+                if (handle.hasWork()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void pruneClosedHandlesLocked() {
+            for (int i = 0; i < handles.size(); i++) {
+                if (handles.get(i).isClosed()) {
+                    handles.remove(i--);
+                }
+            }
+        }
+
+        private void ensureLine() throws Exception {
+            synchronized (engineLock) {
+                if (line != null) {
+                    return;
+                }
+                SourceDataLine candidate = AudioSystem.getSourceDataLine(OUTPUT_FORMAT);
+                try {
+                    candidate.open(OUTPUT_FORMAT, LINE_BUFFER_FRAMES * OUTPUT_FORMAT.getFrameSize());
+                    candidate.start();
+                } catch (Exception exception) {
+                    candidate.close();
+                    throw exception;
+                }
+                line = candidate;
+                // Audio output recovered: leave silent-clock mode so real
+                // output resumes for this and every later game.
+                silentClock = false;
+                lineRetryDeadlineMillis = 0L;
+            }
+        }
+
+        private int encodePcm(int frames) {
+            int output = 0;
+            for (int i = 0; i < frames * 2; i++) {
+                float sample = Math.max(-1.0f, Math.min(1.0f, mixBuffer[i]));
+                int value = Math.round(sample * 32767.0f);
+                pcmBuffer[output++] = (byte) (value & 0xFF);
+                pcmBuffer[output++] = (byte) ((value >>> 8) & 0xFF);
+                mixBuffer[i] = 0.0f;
+            }
+            return output;
+        }
+
+        private void paceSilently(int frames) {
+            long millis = Math.max(1L, Math.round((frames * 1000.0d) / OUTPUT_FORMAT.getFrameRate()));
+            try {
+                Thread.sleep(millis);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        private static long drainPollMillis(long writtenFrames,
+            long playedFrames) {
+            long queuedFrames = Math.max(0L, writtenFrames - playedFrames);
+            if (queuedFrames == 0L) {
+                return 0L;
+            }
+            double queuedMillis = (queuedFrames * 1000.0d) /
+                OUTPUT_FORMAT.getFrameRate();
+            return Math.max(1L, Math.min(20L,
+                (long)Math.ceil(queuedMillis / 2.0d)));
+        }
+
+        private void closeLineLocked() {
+            if (line == null) {
+                writtenFrames = 0L;
+                return;
+            }
+            line.stop();
+            line.flush();
+            line.close();
+            line = null;
+            writtenFrames = 0L;
+        }
+    }
+
+    private static final class PlaybackHandle {
+        private final Object stateLock = new Object();
+        private final SharedEngine engine;
+        private final Listener listener;
+        private final Map<MediaManager.PreparedSound, PlaybackSession> sessions = new IdentityHashMap<>();
+
+        private PlaybackSession activeSession;
+        private MediaManager.PreparedSound pendingSound;
+        private int pendingLoopCount;
+        private int pendingStartPositionMillis;
+        private float pendingPlaybackRate = 1.0f;
+        private boolean pendingStop;
+        private boolean paused;
+        private boolean closed;
+        private int volumeLevel = 100;
+        private int syncEventChannel = -1;
+        private int syncEventKey = -1;
+        // Completion is delivered after the shared output line drains, so keep
+        // separate tokens for the next start request, the currently rendering
+        // playback, and the completion callback that was already armed.
+        private long pendingPlaybackToken = Long.MIN_VALUE;
+        private long activePlaybackToken = Long.MIN_VALUE;
+        private boolean completionPending;
+        private boolean completionNeedsCurrentWrite;
+        private long completionTargetFrame = -1L;
+        private long completionPlaybackToken = Long.MIN_VALUE;
+        private volatile int currentTimeMillis;
+        private volatile int totalTimeMillis;
+        private final long generation;
+
+        private PlaybackHandle(SharedEngine engine, Listener listener, long generation) {
+            this.engine = engine;
+            this.listener = listener;
+            this.generation = generation;
+        }
+
+        private void clearCompletionState() {
+            completionPending = false;
+            completionNeedsCurrentWrite = false;
+            completionTargetFrame = -1L;
+            completionPlaybackToken = Long.MIN_VALUE;
+        }
+
+        void start(MediaManager.PreparedSound sound, int loopCount, int startPositionMillis,
+                   float playbackRate, long playbackToken) {
+            synchronized (stateLock) {
+                pendingSound = sound;
+                pendingLoopCount = loopCount;
+                pendingStartPositionMillis = Math.max(0, startPositionMillis);
+                pendingPlaybackRate = validatePlaybackRate(playbackRate);
+                pendingPlaybackToken = playbackToken;
+                pendingStop = false;
+                paused = false;
+                clearCompletionState();
+                currentTimeMillis = 0;
+                totalTimeMillis = totalTimeFor(sound.mld());
+            }
+            engine.wake();
+        }
+
+        void pause() {
+            synchronized (stateLock) {
+                paused = true;
+            }
+        }
+
+        void restart() {
+            synchronized (stateLock) {
+                paused = false;
+            }
+            engine.wake();
+        }
+
+        int getCurrentTimeMillis() {
+            int current = currentTimeMillis;
+            if (current != 0) {
+                return current;
+            }
+            synchronized (stateLock) {
+                if (closed || pendingStop || paused) {
+                    return 0;
+                }
+                if (pendingSound != null || activeSession != null) {
+                    // Titles poll getCurrentTime() to distinguish "not playing"
+                    // from "already started". Report a minimal non-zero time
+                    // as soon as playback is pending or active, even before the
+                    // worker has rendered the first audio chunk.
+                    return 1;
+                }
+            }
+            return 0;
+        }
+
+        int getTotalTimeMillis() {
+            return totalTimeMillis;
+        }
+
+        void setVolumeLevel(int volumeLevel) {
+            synchronized (stateLock) {
+                this.volumeLevel = Math.max(0, Math.min(100, volumeLevel));
+            }
+        }
+
+        void setPlaybackRate(float playbackRate) {
+            synchronized (stateLock) {
+                pendingPlaybackRate = validatePlaybackRate(playbackRate);
+                if (activeSession != null) {
+                    activeSession.setPlaybackRate(pendingPlaybackRate);
+                }
+            }
+            engine.wake();
+        }
+
+        void setSyncEvent(int channel, int key) {
+            synchronized (stateLock) {
+                syncEventChannel = channel;
+                syncEventKey = key;
+                if (activeSession != null) {
+                    activeSession.configureSync(channel, key);
+                }
+            }
+        }
+
+        void clearSyncEvent() {
+            synchronized (stateLock) {
+                syncEventChannel = -1;
+                syncEventKey = -1;
+                if (activeSession != null) {
+                    activeSession.configureSync(-1, -1);
+                }
+            }
+        }
+
+        void stop() {
+            synchronized (stateLock) {
+                pendingSound = null;
+                pendingLoopCount = 0;
+                pendingStop = true;
+                paused = false;
+                activePlaybackToken = Long.MIN_VALUE;
+                pendingPlaybackToken = Long.MIN_VALUE;
+                clearCompletionState();
+                currentTimeMillis = 0;
+                totalTimeMillis = 0;
+            }
+        }
+
+        void close() {
+            synchronized (stateLock) {
+                closed = true;
+                pendingSound = null;
+                pendingLoopCount = 0;
+                pendingStop = true;
+                paused = false;
+                activeSession = null;
+                activePlaybackToken = Long.MIN_VALUE;
+                pendingPlaybackToken = Long.MIN_VALUE;
+                clearCompletionState();
+                currentTimeMillis = 0;
+                totalTimeMillis = 0;
+            }
+            engine.wake();
+        }
+
+        boolean hasWork() {
+            synchronized (stateLock) {
+                return !closed && (pendingSound != null || completionPending ||
+                        (!pendingStop && activeSession != null && !paused));
+            }
+        }
+
+        boolean isClosed() {
+            synchronized (stateLock) {
+                return closed;
+            }
+        }
+
+        int renderInto(float[] buffer, int frames, List<Runnable> notifications) {
+            PlaybackSession session;
+            float gain;
+            long playbackToken;
+            synchronized (stateLock) {
+                if (closed) {
+                    return 0;
+                }
+                if (pendingStop) {
+                    activeSession = null;
+                    activePlaybackToken = Long.MIN_VALUE;
+                    pendingStop = false;
+                    clearCompletionState();
+                }
+                if (pendingSound != null) {
+                    activeSession = sessions.computeIfAbsent(pendingSound, PlaybackSession::new);
+                    activeSession.reset(pendingLoopCount, pendingStartPositionMillis, pendingPlaybackRate,
+                            syncEventChannel, syncEventKey);
+                    activePlaybackToken = pendingPlaybackToken;
+                    pendingSound = null;
+                    pendingStartPositionMillis = 0;
+                    pendingPlaybackRate = 1.0f;
+                }
+                if (paused || activeSession == null) {
+                    return 0;
+                }
+                session = activeSession;
+                gain = volumeLevel / 100.0f;
+                playbackToken = activePlaybackToken;
+            }
+
+            while (true) {
+                int rendered = session.player.render(buffer, 0, frames, gain, gain, true, false);
+                currentTimeMillis = (int) Math.round(session.player.getTime() * 1000.0);
+
+                final boolean[] restarted = {false};
+                final boolean[] finished = {rendered < 0};
+                final int renderedFrames = Math.max(rendered, 0);
+
+                session.player.drainEvents(event -> {
+                    if (event.type == MLDPlayer.EVENT_END) {
+                        if (session.remainingRepeats == Integer.MAX_VALUE) {
+                            session.player.reset();
+                            if (listener != null) {
+                                notifications.add(() -> listener.onLoop(playbackToken));
+                            }
+                            restarted[0] = true;
+                        } else if (session.remainingRepeats > 0) {
+                            session.remainingRepeats--;
+                            session.player.reset();
+                            if (listener != null) {
+                                notifications.add(() -> listener.onLoop(playbackToken));
+                            }
+                            restarted[0] = true;
+                        } else {
+                            finished[0] = true;
+                        }
+                    } else if (event.type == MLDPlayer.EVENT_KEY && listener != null) {
+                        int timeMillis = (int) Math.round(event.time * 1000.0d);
+                        notifications.add(() -> listener.onSync(timeMillis, playbackToken));
+                    }
+                });
+
+                if (restarted[0]) {
+                    continue;
+                }
+                if (finished[0]) {
+                    synchronized (stateLock) {
+                        if (activeSession == session) {
+                            activeSession = null;
+                            currentTimeMillis = 0;
+                            armCompletion(renderedFrames > 0, playbackToken);
+                        }
+                    }
+                    return renderedFrames;
+                }
+                return renderedFrames;
+            }
+        }
+
+        private void armCompletion(boolean needsCurrentWrite, long playbackToken) {
+            completionPending = true;
+            completionNeedsCurrentWrite = needsCurrentWrite;
+            completionTargetFrame = -1L;
+            completionPlaybackToken = playbackToken;
+        }
+
+        private void bindCompletionTarget(long writtenBefore, long writtenAfter) {
+            synchronized (stateLock) {
+                if (!completionPending || completionTargetFrame >= 0) {
+                    return;
+                }
+                completionTargetFrame =
+                        completionNeedsCurrentWrite ? writtenAfter : writtenBefore;
+            }
+        }
+
+        private void dispatchReadyCompletion(long playedFrames,
+            List<Runnable> notifications) {
+            Listener notify = null;
+            long playbackToken;
+            synchronized (stateLock) {
+                if (!completionPending || completionTargetFrame < 0 ||
+                        playedFrames < completionTargetFrame) {
+                    return;
+                }
+                playbackToken = completionPlaybackToken;
+                clearCompletionState();
+                totalTimeMillis = 0;
+                notify = listener;
+            }
+            if (notify != null) {
+                Listener listenerRef = notify;
+                long token = playbackToken;
+                notifications.add(() -> listenerRef.onComplete(token));
+            }
+        }
+
+        void fail(Exception exception, List<Runnable> notifications) {
+            Listener notify;
+            long playbackToken;
+            synchronized (stateLock) {
+                notify = listener;
+                playbackToken = activePlaybackToken;
+                activeSession = null;
+                activePlaybackToken = Long.MIN_VALUE;
+                pendingPlaybackToken = Long.MIN_VALUE;
+                pendingSound = null;
+                pendingLoopCount = 0;
+                pendingStop = false;
+                clearCompletionState();
+                currentTimeMillis = 0;
+                totalTimeMillis = 0;
+            }
+            if (notify != null) {
+                notifications.add(() -> notify.onFailure(exception, playbackToken));
+            }
+        }
+    }
+
+    private static final class PlaybackSession {
+        private final MLDPlayer player;
+        private final boolean cuepointLooping;
+        private int remainingRepeats;
+
+        private PlaybackSession(MediaManager.PreparedSound sound) {
+            this.player = new MLDPlayer(sound.mld(), SAMPLER_PROVIDER, DEFAULT_SAMPLE_RATE);
+            this.cuepointLooping = Double.isInfinite(sound.mld().getDuration(false));
+        }
+
+        private void configureSync(int channel, int key) {
+            player.clearEventNotes();
+            if (channel >= 0 && key >= 0) {
+                // MLDPlayer filters by the absolute note domain used by DoJa
+                // sync registration rather than the raw A4-relative key.
+                player.addEventNote(channel, key);
+            }
+        }
+
+        private void reset(int loopCount, int startPositionMillis, float playbackRate,
+                           int syncEventChannel, int syncEventKey) {
+            player.setPlaybackEventsEnabled(true);
+            // The native Yamaha phrase engine loops in-place and lets note
+            // releases run through the boundary; killing every voice here is
+            // what made cuepoint loops sound clipped.
+            player.setLoopStopAll(false);
+            if (loopCount < 0) {
+                remainingRepeats = Integer.MAX_VALUE;
+            } else {
+                remainingRepeats = Math.max(0, loopCount);
+            }
+            player.setLoopEnabled(cuepointLooping && loopCount != 0);
+            configureSync(syncEventChannel, syncEventKey);
+            player.reset();
+            player.setPlaybackRate(playbackRate);
+            if (startPositionMillis > 0) {
+                player.setTime(startPositionMillis / 1000.0);
+            }
+        }
+
+        private void setPlaybackRate(float playbackRate) {
+            player.setPlaybackRate(playbackRate);
+        }
+    }
+
+    private static float validatePlaybackRate(float playbackRate) {
+        if (!Float.isFinite(playbackRate) || playbackRate <= 0.0f) {
+            throw new IllegalArgumentException("playbackRate");
+        }
+        return playbackRate;
+    }
+
+    private static final class SynthProfile {
+        private final MLDSynth synth;
+        private final String id;
+        private final SamplerProvider samplerProvider;
+        private final float defaultSampleRate;
+        private final int defaultBufferFrames;
+
+        private SynthProfile(MLDSynth synth,
+                             SamplerProvider samplerProvider,
+                             float defaultSampleRate,
+                             int defaultBufferFrames) {
+            this.synth = synth;
+            this.id = synth.id;
+            this.samplerProvider = samplerProvider;
+            this.defaultSampleRate = defaultSampleRate;
+            this.defaultBufferFrames = defaultBufferFrames;
+        }
+    }
+}

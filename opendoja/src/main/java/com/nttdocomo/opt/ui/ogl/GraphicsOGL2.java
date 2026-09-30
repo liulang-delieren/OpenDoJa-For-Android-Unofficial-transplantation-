@@ -1,0 +1,35 @@
+package com.nttdocomo.opt.ui.ogl;
+
+import com.nttdocomo.ui.ogl.GraphicsOGL;
+
+/**
+ * Extends {@link GraphicsOGL} with cube-map texture generation operations.
+ */
+public interface GraphicsOGL2 extends GraphicsOGL {
+    int GL_STR = 8196;
+    int GL_TEXTURE_GEN_STR = 3172;
+    int GL_TEXTURE_GEN_MODE = 9472;
+    int GL_NORMAL_MAP = 34065;
+    int GL_REFLECTION_MAP = 34066;
+    int GL_TEXTURE_CUBE_MAP = 34067;
+    int GL_TEXTURE_BINDING_CUBE_MAP = 34068;
+    int GL_TEXTURE_CUBE_MAP_POSITIVE_X = 34069;
+    int GL_TEXTURE_CUBE_MAP_NEGATIVE_X = 34070;
+    int GL_TEXTURE_CUBE_MAP_POSITIVE_Y = 34071;
+    int GL_TEXTURE_CUBE_MAP_NEGATIVE_Y = 34072;
+    int GL_TEXTURE_CUBE_MAP_POSITIVE_Z = 34073;
+    int GL_TEXTURE_CUBE_MAP_NEGATIVE_Z = 34074;
+    int GL_MAX_CUBE_MAP_TEXTURE_SIZE = 34076;
+
+    void glTexGenf(int coord, int pname, float param);
+
+    void glTexGenfv(int coord, int pname, float[] params);
+
+    void glTexGeni(int coord, int pname, int param);
+
+    void glTexGeniv(int coord, int pname, int[] params);
+
+    void glGetTexGenfv(int coord, int pname, float[] params);
+
+    void glGetTexGeniv(int coord, int pname, int[] params);
+}

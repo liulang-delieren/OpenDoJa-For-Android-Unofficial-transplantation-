@@ -287,7 +287,8 @@ final class DoJaPkcs7Support {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         for (X509Certificate certificate : certificateChain) {
             if (certificate != null) {
-                output.writeBytes(certificate.getEncoded());
+                byte[] encoded = certificate.getEncoded();
+                output.write(encoded, 0, encoded.length);
             }
         }
         return output.toByteArray();
@@ -379,7 +380,7 @@ final class DoJaPkcs7Support {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         for (byte[] array : arrays) {
             if (array != null) {
-                output.writeBytes(array);
+                output.write(array, 0, array.length);
             }
         }
         return output.toByteArray();
@@ -389,7 +390,7 @@ final class DoJaPkcs7Support {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         output.write(tag);
         writeLength(output, value.length);
-        output.writeBytes(value);
+        output.write(value, 0, value.length);
         return output.toByteArray();
     }
 

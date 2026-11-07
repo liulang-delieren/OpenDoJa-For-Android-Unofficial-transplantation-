@@ -25,11 +25,42 @@ import opendoja.host.HostControlAction;
  * Windows host exposes in its keybind dialog. Tap a row, then press a hardware
  * key to bind it; long-press clears the binding. The system back key is always
  * reserved for force-quitting the game back to the title screen.
+ *
+ * Without extras this edits the global mapping (SharedPreferences "keymap").
+ * With {@link #EXTRA_GAME_KEY} it edits that game's own layer
+ * ("keymap_<gameKey>"): the per-game layer is consulted first at runtime and
+ * falls back to the global layer per action, so clearing a per-game row simply
+ * makes that action follow the global binding again.
  */
 public class KeyMappingActivity extends Activity {
     static final String PREFS_NAME = "keymap";
+    static final String EXTRA_GAME_KEY = "gameKey";
+    static final String EXTRA_GAME_NAME = "gameName";
+
+    /** Per-game prefs file for the given game key; matches EntryActivity lookup. */
+    static String prefsNameForGame(String gameKey) {
+        return PREFS_NAME + "_" + gameKey;
+    }
+
+    /** Derives the stable game key (jam basename, lowercase) from a jam path. */
+    static String gameKeyFromJamPath(String jamPath) {
+        if (jamPath == null || jamPath.isBlank()) {
+            return null;
+        }
+        String name = jamPath;
+        int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+        if (slash >= 0) {
+            name = name.substring(slash + 1);
+        }
+        int dot = name.lastIndexOf('.');
+        if (dot > 0) {
+            name = name.substring(0, dot);
+        }
+        return name.isEmpty() ? null : name.toLowerCase(java.util.Locale.ROOT);
+    }
 
     private SharedPreferences prefs;
+    private String gameKey;
     private LinearLayout rowsContainer;
     private TextView headerView;
     private HostControlAction capturing;
@@ -38,9 +69,18 @@ public class KeyMappingActivity extends Activity {
     private final Map<String, TextView> bindingViews = new LinkedHashMap<>();
 
     @Override
+    protected void attachBaseContext(android.content.Context base) {
+        super.attachBaseContext(AppLanguage.wrap(base));
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
+        AppTheme.apply(this);
         super.onCreate(savedInstanceState);
-        prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String key = getIntent() != null ? getIntent().getStringExtra(EXTRA_GAME_KEY) : null;
+        gameKey = (key == null || key.isBlank()) ? null : key;
+        prefs = getSharedPreferences(
+                gameKey == null ? PREFS_NAME : prefsNameForGame(gameKey), MODE_PRIVATE);
 
         float density = getResources().getDisplayMetrics().density;
         int pad = (int) (16 * density);
@@ -49,8 +89,12 @@ public class KeyMappingActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(pad, pad, pad, pad);
 
+        String gameName = getIntent() != null ? getIntent().getStringExtra(EXTRA_GAME_NAME) : null;
         TextView title = new TextView(this);
-        title.setText("按键映射");
+        title.setText(gameKey == null
+                ? getString(R.string.keymap_title)
+                : getString(R.string.keymap_title_game,
+                        gameName != null ? gameName : gameKey));
         title.setTextSize(24f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         root.addView(title, matchWrap());
@@ -87,7 +131,7 @@ public class KeyMappingActivity extends Activity {
         row.setPadding((int) (8 * density), (int) (10 * density), (int) (8 * density), (int) (10 * density));
 
         TextView name = new TextView(this);
-        name.setText(action.displayName());
+        name.setText(actionLabel(action));
         name.setTextSize(16f);
         row.addView(name, weighted());
 
@@ -122,37 +166,97 @@ public class KeyMappingActivity extends Activity {
         return params;
     }
 
-    private static String describeDispatch(HostControlAction action) {
-        if (action.dispatchKind() == HostControlAction.DispatchKind.HOST_SOFT_KEY) {
-            return "软键 " + (action.dispatchCode() + 1);
+    /** Localized display name for a DoJa control action (falls back to the shared name). */
+    private String actionLabel(HostControlAction action) {
+        switch (action.id()) {
+            case "digit0":
+                return getString(R.string.action_digit0);
+            case "digit1":
+                return getString(R.string.action_digit1);
+            case "digit2":
+                return getString(R.string.action_digit2);
+            case "digit3":
+                return getString(R.string.action_digit3);
+            case "digit4":
+                return getString(R.string.action_digit4);
+            case "digit5":
+                return getString(R.string.action_digit5);
+            case "digit6":
+                return getString(R.string.action_digit6);
+            case "digit7":
+                return getString(R.string.action_digit7);
+            case "digit8":
+                return getString(R.string.action_digit8);
+            case "digit9":
+                return getString(R.string.action_digit9);
+            case "asterisk":
+                return getString(R.string.action_asterisk);
+            case "pound":
+                return getString(R.string.action_pound);
+            case "moveLeft":
+                return getString(R.string.action_move_left);
+            case "moveUp":
+                return getString(R.string.action_move_up);
+            case "moveRight":
+                return getString(R.string.action_move_right);
+            case "moveDown":
+                return getString(R.string.action_move_down);
+            case "select":
+                return getString(R.string.action_select);
+            case "clear":
+                return getString(R.string.action_clear);
+            case "softKeyLeft":
+                return getString(R.string.action_soft_key_left);
+            case "softKeyRight":
+                return getString(R.string.action_soft_key_right);
+            case "menu":
+                return getString(R.string.action_menu);
+            case "camera":
+                return getString(R.string.action_camera);
+            default:
+                return action.displayName();
         }
-        return "DoJa key " + action.dispatchCode();
+    }
+
+    private String describeDispatch(HostControlAction action) {
+        if (action.dispatchKind() == HostControlAction.DispatchKind.HOST_SOFT_KEY) {
+            return getString(R.string.dispatch_soft_key, action.dispatchCode() + 1);
+        }
+        return getString(R.string.dispatch_doja_key, action.dispatchCode());
     }
 
     private String bindingLabel(HostControlAction action) {
         int keyCode = prefs.getInt(action.id(), -1);
-        if (keyCode < 0) {
-            return "未绑定";
+        if (keyCode >= 0) {
+            return keyLabel(keyCode);
         }
-        return keyLabel(keyCode);
+        if (gameKey != null) {
+            // Per-game row is empty: show what the game will actually use
+            // (EntryActivity falls back to the global binding per action).
+            int global = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getInt(action.id(), -1);
+            if (global >= 0) {
+                return getString(R.string.binding_follow_global, keyLabel(global));
+            }
+        }
+        return getString(R.string.binding_none);
     }
 
-    static String keyLabel(int keyCode) {
+    String keyLabel(int keyCode) {
         switch (keyCode) {
             case android.view.KeyEvent.KEYCODE_VOLUME_UP:
-                return "音量+";
+                return getString(R.string.key_volume_up);
             case android.view.KeyEvent.KEYCODE_VOLUME_DOWN:
-                return "音量-";
+                return getString(R.string.key_volume_down);
             case android.view.KeyEvent.KEYCODE_VOLUME_MUTE:
-                return "静音";
+                return getString(R.string.key_volume_mute);
             case android.view.KeyEvent.KEYCODE_BACK:
-                return "返回";
+                return getString(R.string.key_back);
             case android.view.KeyEvent.KEYCODE_HOME:
-                return "Home";
+                return getString(R.string.key_home);
             case android.view.KeyEvent.KEYCODE_ENTER:
-                return "回车";
+                return getString(R.string.key_enter);
             case android.view.KeyEvent.KEYCODE_SPACE:
-                return "空格";
+                return getString(R.string.key_space);
             default:
                 break;
         }
@@ -181,11 +285,14 @@ public class KeyMappingActivity extends Activity {
 
     private void updateHeader(HostControlAction target) {
         if (target != null) {
-            headerView.setText("正在绑定: " + target.displayName() + " — 按下实体键（返回键取消）");
-            headerView.setTextColor(0x66CCFFFF);
+            headerView.setText(getString(R.string.header_binding, actionLabel(target)));
+            headerView.setTextColor(AppTheme.accentText(this));
+        } else if (gameKey != null) {
+            headerView.setText(R.string.header_game);
+            headerView.setTextColor(AppTheme.secondaryText(this));
         } else {
-            headerView.setText("点选一行后按实体键进行绑定，长按清除；游戏内按系统返回键退出游戏。");
-            headerView.setTextColor(0xAAFFFFFF);
+            headerView.setText(R.string.header_global);
+            headerView.setTextColor(AppTheme.secondaryText(this));
         }
     }
 

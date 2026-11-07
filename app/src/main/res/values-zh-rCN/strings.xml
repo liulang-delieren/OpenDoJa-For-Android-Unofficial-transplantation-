@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OpenDoJa For Android</string>
+    <string name="home_title">OpenDoJa For Android</string>
+
+    <string name="cancel">取消</string>
+    <string name="ok">确定</string>
+    <string name="close">关闭</string>
+    <string name="delete">删除</string>
+    <string name="show">显示</string>
+    <string name="hide">隐藏</string>
+
+    <!-- 主界面 -->
+    <string name="home_empty">暂无已安装的游戏\n点击右上角按钮选择「加载JAM」导入</string>
+    <string name="menu_load_jam">加载JAM</string>
+    <string name="menu_key_mapping">按键映射</string>
+    <string name="menu_delete_game">删除游戏</string>
+    <string name="menu_language">语言</string>
+    <string name="menu_toggle_theme">切换夜晚/明亮模式</string>
+    <string name="menu_about">关于</string>
+    <string name="about_title">关于</string>
+    <string name="about_message">OpenDoJa For Android(非官方移植)\n版本：%1$s\n移植：流浪的猎人(Wandering Hunter)\n\n这是“OpenDoJa”的非官方Android移植，由流浪的猎人(Wandering Hunter)使用OpenCode+Xiaomi Mimo V2.6免费版实现移植，这个版本的出现只是因为流浪的猎人自己想在Android掌机上玩这些游戏，然后尝试基于OpenDoJa 0.25版本的源代码实现了移植。\n\n目前OpenDoJa For Android的兼容性暂时无法和OpenDoJa的Windows版本相对比，这是一个临时过渡方案，我本人和模拟器开发几乎是沾不上边的，建议各位还是等待OpenDoJa的官方Android版本。\n\n感谢名单：\n本项目在开发Android版本的过程中引用了JL-MOD开源代码里面的JAR2DEX实现方式，这里要感谢JL-MOD和J2ME Loader的开发者。\n还有Magstic在本项目开发过程中提供的一些思路和指出的问题，还有对部分Doja API问题的解答。\n还有Keitai World Discord频道的一些人，没有你们在这之前对手机的Dump和维护就不会有这个项目了。\n最后我还要感谢OpenDoJa的开发者，如果没有OpenDoja项目，我是没有可能在他的基础之上尝试移植到Android系统的。\n\n本移植项目遵守GPL V3协议开源代码。\nGithub：https://github.com/liulang-delieren/OpenDoJa-for-Android-Unofficial-Port-</string>
+    <string name="load_jam_title">加载 JAM</string>
+    <string name="import_from_folder">从文件夹导入…</string>
+    <string name="toast_no_installed_games">没有已安装的游戏</string>
+    <string name="delete_game_title">删除游戏</string>
+    <string name="delete_confirm_message">确定删除「%1$s」吗？\n将同时删除同名的 .jar / .sp / .dex 及其加载缓存，删除后需重新导入才能游玩。</string>
+    <string name="toast_deleted_files">已删除，清理 %1$d 个文件</string>
+    <string name="toast_no_folder_picker">没有可用的文件夹选择器</string>
+    <string name="toast_imported_games">已导入 %1$d 个游戏</string>
+    <string name="toast_imported_games_partial">已导入 %1$d 个游戏，未导入:\n%2$s</string>
+    <string name="toast_nothing_importable">该文件夹里没有可导入的游戏</string>
+    <string name="toast_import_failed">导入失败:\n%1$s</string>
+    <string name="error_cannot_read_folder">无法读取所选文件夹</string>
+    <string name="error_cannot_read_folder_detail">无法读取所选文件夹: %1$s</string>
+    <string name="error_no_jam_files">所选文件夹里没有 .jam 文件</string>
+    <string name="error_missing_jar">缺少 .jar</string>
+    <string name="error_no_matching_jar">找不到与 .jam 同名的 .jar</string>
+    <string name="error_missing_sp">缺少同名 .sp（.jam 声明了 SPsize）</string>
+    <string name="error_game_skipped">%1$s: %2$s</string>
+    <string name="list_separator">、</string>
+    <string name="error_cannot_read_file">无法读取 %1$s</string>
+    <string name="error_copy_failed">复制失败: %1$s</string>
+
+    <!-- 游戏设置 -->
+    <string name="settings_title">游戏设置</string>
+    <string name="settings_keymap">按键映射</string>
+    <string name="settings_keypad">虚拟按键</string>
+    <string name="settings_renderer">渲染器</string>
+    <string name="settings_scale">画面缩放</string>
+    <string name="renderer_default">默认（硬件加速）</string>
+    <string name="renderer_hardware">硬件加速</string>
+    <string name="renderer_software">软件渲染</string>
+    <string name="scale_uniform">等比例缩放</string>
+    <string name="scale_uniform_desc">等比例缩放（保持原比例，留黑边）</string>
+    <string name="scale_fill">适应屏幕显示范围缩放</string>
+    <string name="scale_fill_desc">适应屏幕显示范围缩放（拉伸铺满整屏，按键叠在画面上）</string>
+    <string name="scale_cover">适应屏幕显示范围等比例缩放</string>
+    <string name="scale_cover_desc">适应屏幕显示范围等比例缩放（按比例放大不裁剪；可按整数倍对齐屏幕时不留边）</string>
+    <string name="summary_unknown_game">无法识别游戏文件</string>
+    <string name="summary_keymap_none">未单独配置（跟随全局）</string>
+    <string name="summary_keymap_count">已单独绑定 %1$d 个按键</string>
+
+    <!-- 按键映射 -->
+    <string name="keymap_title">按键映射</string>
+    <string name="keymap_title_game">按键映射 · %1$s</string>
+    <string name="dispatch_soft_key">软键 %1$d</string>
+    <string name="dispatch_doja_key">DoJa 按键 %1$d</string>
+    <string name="binding_follow_global">跟随全局: %1$s</string>
+    <string name="binding_none">未绑定</string>
+    <string name="key_volume_up">音量+</string>
+    <string name="key_volume_down">音量-</string>
+    <string name="key_volume_mute">静音</string>
+    <string name="key_back">返回</string>
+    <string name="key_home">Home</string>
+    <string name="key_enter">回车</string>
+    <string name="key_space">空格</string>
+    <string name="header_binding">正在绑定: %1$s — 按下实体键（返回键取消）</string>
+    <string name="header_game">点选一行后按实体键绑定本游戏专属按键；长按清除（恢复跟随全局）；游戏内按系统返回键打开游戏菜单。</string>
+    <string name="header_global">点选一行后按实体键进行绑定，长按清除；游戏内按系统返回键退出游戏。</string>
+
+    <!-- DoJa 按键名称 -->
+    <string name="action_digit0">数字 0</string>
+    <string name="action_digit1">数字 1</string>
+    <string name="action_digit2">数字 2</string>
+    <string name="action_digit3">数字 3</string>
+    <string name="action_digit4">数字 4</string>
+    <string name="action_digit5">数字 5</string>
+    <string name="action_digit6">数字 6</string>
+    <string name="action_digit7">数字 7</string>
+    <string name="action_digit8">数字 8</string>
+    <string name="action_digit9">数字 9</string>
+    <string name="action_asterisk">星号</string>
+    <string name="action_pound">井号</string>
+    <string name="action_move_left">左移</string>
+    <string name="action_move_up">上移</string>
+    <string name="action_move_right">右移</string>
+    <string name="action_move_down">下移</string>
+    <string name="action_select">确定</string>
+    <string name="action_clear">清除</string>
+    <string name="action_soft_key_left">左软键</string>
+    <string name="action_soft_key_right">右软键</string>
+    <string name="action_menu">菜单</string>
+    <string name="action_camera">相机</string>
+
+    <!-- 游戏内 BACK 菜单 -->
+    <string name="game_menu_title">游戏菜单</string>
+    <string name="game_menu_hide_keypad">隐藏虚拟按键</string>
+    <string name="game_menu_show_keypad">显示虚拟按键</string>
+    <string name="game_menu_exit">退出游戏</string>
+    <string name="toast_game_launch_failed">游戏启动失败: %1$s</string>
+    <string name="error_jam_missing">游戏文件不存在: %1$s</string>
+    <string name="error_jam_path_required">未指定游戏路径 (jamPath)</string>
+
+    <!-- 语言 -->
+    <string name="language_title">语言</string>
+    <string name="language_system">跟随系统</string>
+    <string name="language_zh">中文（简体）</string>
+    <string name="language_en">English</string>
+</resources>

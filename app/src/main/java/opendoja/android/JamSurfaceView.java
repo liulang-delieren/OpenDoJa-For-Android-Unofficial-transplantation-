@@ -105,6 +105,23 @@ public class JamSurfaceView extends View {
     private int[] pixels;
     private int screenVersion;
     private boolean keypadVisible = true;
+    /** Keep the aspect ratio, letterboxed (historical behaviour). */
+    public static final int SCALE_UNIFORM = 0;
+    /** Stretch the picture over the whole screen; the keypad is drawn on top of it. */
+    public static final int SCALE_FILL = 1;
+    /**
+     * Keep the aspect ratio and grow the picture as far as possible without cropping.
+     * If an integer multiple of the game resolution lines up exactly with the screen
+     * resolution on either axis, that scale is used so game pixels map 1:1 to screen
+     * pixels (e.g. a 320px wide game on a 1600px wide screen is shown at 5x). Otherwise
+     * the picture is limited to {@link #COVER_AREA_LIMIT} of the screen. The bottom
+     * keypad may sit on top of the picture; this mode never reserves room for it.
+     */
+    public static final int SCALE_COVER = 2;
+    /** Fraction of the screen used by SCALE_COVER when no exact multiple matches. */
+    private static final float COVER_AREA_LIMIT = 0.96f;
+
+    private int scaleMode = SCALE_UNIFORM;
 
     private final RectF padRect = new RectF();
     private final RectF gameRect = new RectF();
@@ -160,6 +177,7 @@ public class JamSurfaceView extends View {
         if (w <= 0 || h <= 0) {
             return;
         }
+        long traceStart = opendoja.host.FramePhaseTrace.begin();
         synchronized (lock) {
             if (pixels == null || pixels.length < w * h) {
                 pixels = new int[w * h];
@@ -176,6 +194,8 @@ public class JamSurfaceView extends View {
             screenVersion++;
         }
         postInvalidate();
+        opendoja.host.FramePhaseTrace.end(opendoja.host.FramePhaseTrace.PRESENT, traceStart);
+        opendoja.host.FramePhaseTrace.framePresented();
     }
 
     @Override
@@ -193,7 +213,9 @@ public class JamSurfaceView extends View {
         }
         computeZones();
         if (bmp != null && !bmp.isRecycled()) {
+            long traceStart = opendoja.host.FramePhaseTrace.begin();
             drawGameUpscaled(canvas, bmp, sourceVersion);
+            opendoja.host.FramePhaseTrace.end(opendoja.host.FramePhaseTrace.UPSCALE, traceStart);
         }
         if (keypadVisible) {
             drawKeypad(canvas);
@@ -202,6 +224,39 @@ public class JamSurfaceView extends View {
 
     public boolean isKeypadVisible() {
         return keypadVisible;
+    }
+
+    /**
+     * Selects how the game picture fills the view.
+     *
+     * @param mode {@link #SCALE_UNIFORM} (keep the aspect ratio, letterboxed),
+     *             {@link #SCALE_FILL} (stretch over the whole screen) or
+     *             {@link #SCALE_COVER} (keep the ratio and grow to the screen edge when it
+     *             lines up exactly, otherwise nearly fill the screen); the keypad is drawn
+     *             on top of the picture in every mode
+     */
+    public void setScaleMode(int mode) {
+        int clamped = mode == SCALE_FILL || mode == SCALE_COVER ? mode : SCALE_UNIFORM;
+        if (scaleMode == clamped) {
+            return;
+        }
+        scaleMode = clamped;
+        postInvalidate();
+    }
+
+    public int getScaleMode() {
+        return scaleMode;
+    }
+
+    /** Maps the persisted per-game setting id to a scaling mode. */
+    public static int scaleModeFromId(String id) {
+        if ("fill".equals(id)) {
+            return SCALE_FILL;
+        }
+        if ("cover".equals(id)) {
+            return SCALE_COVER;
+        }
+        return SCALE_UNIFORM;
     }
 
     /** Hides/shows the whole on-screen keypad (d-pad, dial pad, soft keys). */
@@ -278,10 +333,45 @@ public class JamSurfaceView extends View {
             upscaleLogged = true;
             Log.i(TAG, "upscale nearest: src=" + srcWidth + "x" + srcHeight
                     + " dst=" + dstWidth + "x" + dstHeight
+                    + " mode=" + scaleMode
                     + " at " + dstLeft + "," + dstTop
                     + " hwAccel=" + canvas.isHardwareAccelerated());
         }
         canvas.drawBitmap(scaled, dstLeft, dstTop, null);
+    }
+
+    /**
+     * Largest integer scale at which the game resolution divides the screen resolution
+     * exactly on one axis while still fitting the other axis, or 0 when the game does not
+     * line up with the screen at all. Pixel-exact scales keep every game pixel square and
+     * let SCALE_COVER use the full screen edge instead of leaving a safety margin.
+     *
+     * <p>On a 1600x1440 screen: 320x240 gives 5 (1600x1200), 240x240 gives 6 (1440x1440),
+     * 426x240 gives 0.
+     */
+    private static int exactScreenScale(float viewWidth, float viewHeight, int gameW, int gameH) {
+        if (gameW <= 0 || gameH <= 0) {
+            return 0;
+        }
+        int screenW = Math.round(viewWidth);
+        int screenH = Math.round(viewHeight);
+        if (screenW <= 0 || screenH <= 0) {
+            return 0;
+        }
+        int best = 0;
+        if (screenW % gameW == 0) {
+            int scale = screenW / gameW;
+            if (scale > 0 && (long) gameH * scale <= screenH) {
+                best = scale;
+            }
+        }
+        if (screenH % gameH == 0) {
+            int scale = screenH / gameH;
+            if (scale > 0 && (long) gameW * scale <= screenW && scale > best) {
+                best = scale;
+            }
+        }
+        return best;
     }
 
     private void computeZones() {
@@ -301,9 +391,6 @@ public class JamSurfaceView extends View {
         float dstHeight = gameH * scale;
         float gameLeft = (viewWidth - dstWidth) / 2f;
         float gameTop = (viewHeight - dstHeight) / 2f;
-        gameRect.set(gameLeft, gameTop, gameLeft + dstWidth, gameTop + dstHeight);
-        gamePixelW = gameW;
-        gamePixelH = gameH;
         float bandTop = gameTop + dstHeight;
         float bandHeight = viewHeight - bandTop;
         if (bandHeight < viewHeight * 0.15f) {
@@ -311,6 +398,30 @@ public class JamSurfaceView extends View {
             bandTop = viewHeight * 0.74f;
             bandHeight = viewHeight - bandTop;
         }
+        // bandTop comes from the uniform layout on purpose: the keys never move or resize
+        // when the scaling mode changes. The picture may extend underneath them; the
+        // keypad is drawn after the game so it simply sits on top.
+        if (scaleMode == SCALE_FILL) {
+            gameRect.set(0f, 0f, viewWidth, viewHeight);
+        } else if (scaleMode == SCALE_COVER) {
+            // The keypad is allowed to sit on top of the picture, so the scale is derived
+            // from the full screen: use an exact integer multiple when the game resolution
+            // divides the screen resolution (crisp 1:1 pixels, no wasted margin), otherwise
+            // grow to COVER_AREA_LIMIT of the screen so the picture never reaches the edge.
+            int exactScale = exactScreenScale(viewWidth, viewHeight, gameW, gameH);
+            float cover = exactScale > 0
+                    ? exactScale
+                    : Math.min(viewWidth / gameW, viewHeight / gameH) * COVER_AREA_LIMIT;
+            float coverWidth = gameW * cover;
+            float coverHeight = gameH * cover;
+            float coverLeft = (viewWidth - coverWidth) / 2f;
+            float coverTop = (viewHeight - coverHeight) / 2f;
+            gameRect.set(coverLeft, coverTop, coverLeft + coverWidth, coverTop + coverHeight);
+        } else {
+            gameRect.set(gameLeft, gameTop, gameLeft + dstWidth, gameTop + dstHeight);
+        }
+        gamePixelW = gameW;
+        gamePixelH = gameH;
         padRect.set(0f, bandTop, viewWidth, viewHeight);
 
         float pad = Math.min(bandHeight, viewWidth) * 0.05f;

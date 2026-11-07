@@ -85,6 +85,21 @@ public final class DesktopSurface {
         return oglFramePixels;
     }
 
+    /**
+     * Returns the OGL framebuffer for callers that overwrite every pixel (hardware readback).
+     * The buffer is allocated if needed but never seeded from the bitmap; the caller must
+     * publish it via {@link #markOglFrameDirty()} afterwards.
+     */
+    public synchronized int[] acquireOglFramePixelsForReplace() {
+        int width = image.getWidth();
+        int height = image.getHeight();
+        int pixelCount = width * height;
+        if (oglFramePixels == null || oglFramePixels.length != pixelCount) {
+            oglFramePixels = new int[pixelCount];
+        }
+        return oglFramePixels;
+    }
+
     public void markOglFrameDirty() {
         oglFrameDirty = true;
     }
@@ -100,7 +115,9 @@ public final class DesktopSurface {
             }
             int width = image.getWidth();
             int height = image.getHeight();
+            long traceStart = FramePhaseTrace.begin();
             image.getBitmap().setPixels(oglFramePixels, 0, width, 0, 0, width, height);
+            FramePhaseTrace.end(FramePhaseTrace.FLUSH, traceStart);
             oglFrameDirty = false;
         }
     }

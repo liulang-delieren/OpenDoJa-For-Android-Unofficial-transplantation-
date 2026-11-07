@@ -27,7 +27,8 @@ final class OglSoftwareRenderer {
         // Triangle modes rasterize into the side OGL framebuffer; line/default modes draw
         // through the delegate (bitmap), so publish any pending OGL frame before that.
         int[] pixels;
-        if (mode == GraphicsOGL.GL_TRIANGLES || mode == GraphicsOGL.GL_TRIANGLE_STRIP) {
+        if (mode == GraphicsOGL.GL_TRIANGLES || mode == GraphicsOGL.GL_TRIANGLE_STRIP
+                || mode == GraphicsOGL.GL_TRIANGLE_FAN) {
             pixels = surface.acquireOglFramePixels();
             surface.markOglFrameDirty();
         } else {
@@ -89,11 +90,120 @@ final class OglSoftwareRenderer {
                     nextClip = next == scratch0 ? clip0 : clip1;
                 }
             }
+            case GraphicsOGL.GL_TRIANGLE_FAN -> {
+                if (primitiveCount < 3) {
+                    return;
+                }
+                if (!populateRasterVertex(scratch0, clip0, resolveVertexIndex(first, indexSource, 0))
+                        || !populateRasterVertex(scratch1, clip1, resolveVertexIndex(first, indexSource, 1))) {
+                    return;
+                }
+                for (int i = 2; i < primitiveCount; i++) {
+                    if (!populateRasterVertex(scratch2, clip1, resolveVertexIndex(first, indexSource, i))) {
+                        continue;
+                    }
+                    owner.drawRasterTriangle(scratch0, scratch1, scratch2, pixels, depthBuffer, clip,
+                            width, height, clipInput, clipScratch, project0, project1, project2);
+                    OglRenderer.RasterVertex swap = scratch1;
+                    scratch1 = scratch2;
+                    scratch2 = swap;
+                }
+            }
             case GraphicsOGL.GL_LINE_LOOP ->
                     owner.drawLineLoop(first, primitiveCount, indexSource, clip, width, height,
                             scratch0, scratch1, scratch2, clip0, clip1);
-            default -> ogl.lastError = GraphicsOGL.GL_INVALID_ENUM;
+            case GraphicsOGL.GL_LINE_STRIP, GraphicsOGL.GL_LINES, GraphicsOGL.GL_POINTS ->
+                    drawDelegatePrimitives(mode, first, primitiveCount, indexSource, clip, width, height);
+            default -> {
+                logUnsupportedModeOnce(mode);
+                ogl.lastError = GraphicsOGL.GL_INVALID_ENUM;
+            }
         }
+    }
+
+    private int loggedModes;
+
+    private void logUnsupportedModeOnce(int mode) {
+        if (mode < 0 || mode >= 31) {
+            return;
+        }
+        int bit = 1 << mode;
+        if ((loggedModes & bit) == 0) {
+            loggedModes |= bit;
+            opendoja.host.OpenDoJaLog.warn(OglRenderer.class,
+                    "Software renderer: unsupported primitive mode=" + mode);
+        }
+    }
+
+    private void drawDelegatePrimitives(int mode, int first, int primitiveCount,
+            OglRenderer.OglIndexSource indexSource, Rectangle clip, int width, int height) {
+        OglRenderer.RasterVertex v0 = drawScratch.scratch0;
+        OglRenderer.RasterVertex v1 = drawScratch.scratch1;
+        OglRenderer.ClipVector clipA = drawScratch.clip0;
+        OglRenderer.ClipVector clipB = drawScratch.clip1;
+        Color oldColor = owner.host().delegate().getColor();
+        Shape oldClip = owner.host().delegate().getClip();
+        try {
+            if (clip != null) {
+                owner.host().delegate().setClip(clip);
+            }
+            if (mode == GraphicsOGL.GL_POINTS) {
+                for (int i = 0; i < primitiveCount; i++) {
+                    if (!populateRasterVertex(v0, clipA, resolveVertexIndex(first, indexSource, i))) {
+                        continue;
+                    }
+                    owner.host().delegate().setColor(new Color(v0.color, true));
+                    owner.host().delegate().fillRect(clampX(Math.round(v0.x), width),
+                            clampY(Math.round(v0.y), height), 1, 1);
+                }
+                return;
+            }
+            if (mode == GraphicsOGL.GL_LINES) {
+                for (int i = 0; i + 1 < primitiveCount; i += 2) {
+                    if (!populateRasterVertex(v0, clipA, resolveVertexIndex(first, indexSource, i))
+                            || !populateRasterVertex(v1, clipB, resolveVertexIndex(first, indexSource, i + 1))) {
+                        continue;
+                    }
+                    owner.host().delegate().setColor(new Color(v0.color, true));
+                    owner.host().delegate().drawLine(clampX(Math.round(v0.x), width),
+                            clampY(Math.round(v0.y), height), clampX(Math.round(v1.x), width),
+                            clampY(Math.round(v1.y), height));
+                }
+                return;
+            }
+            if (primitiveCount < 2) {
+                return;
+            }
+            if (!populateRasterVertex(v0, clipA, resolveVertexIndex(first, indexSource, 0))) {
+                return;
+            }
+            owner.host().delegate().setColor(new Color(v0.color, true));
+            OglRenderer.RasterVertex previous = v0;
+            OglRenderer.RasterVertex current = v1;
+            OglRenderer.ClipVector currentClip = clipB;
+            for (int i = 1; i < primitiveCount; i++) {
+                if (!populateRasterVertex(current, currentClip, resolveVertexIndex(first, indexSource, i))) {
+                    continue;
+                }
+                owner.host().delegate().drawLine(clampX(Math.round(previous.x), width),
+                        clampY(Math.round(previous.y), height), clampX(Math.round(current.x), width),
+                        clampY(Math.round(current.y), height));
+                OglRenderer.RasterVertex swap = previous;
+                previous = current;
+                current = swap;
+            }
+        } finally {
+            owner.host().delegate().setColor(oldColor);
+            owner.host().delegate().setClip(oldClip);
+        }
+    }
+
+    private static int clampX(int value, int width) {
+        return Math.max(0, Math.min(width - 1, value));
+    }
+
+    private static int clampY(int value, int height) {
+        return Math.max(0, Math.min(height - 1, value));
     }
 
     int resolveVertexIndex(int first, OglRenderer.OglIndexSource elementIndices, int primitiveIndex) {

@@ -285,7 +285,15 @@ public final class DoJaStorageHostProbe {
     private static byte[] readAllBytes(com.nttdocomo.fs.File file) throws Exception {
         FileEntity entity = file.open(com.nttdocomo.fs.File.MODE_READ_ONLY);
         try (InputStream in = entity.openInputStream()) {
-            return in.readAllBytes();
+            // InputStream#readAllBytes is Java 9 (Android 13); read manually so this also
+            // works on older releases.
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = in.read(buffer)) != -1) {
+                out.write(buffer, 0, read);
+            }
+            return out.toByteArray();
         } finally {
             entity.close();
         }

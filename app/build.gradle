@@ -8,12 +8,19 @@ android {
 
     defaultConfig {
         applicationId 'com.liulangdelieren.opendoja'
-        minSdk 28
+        minSdk 26
         // 30 keeps java.nio.charset.Charset->defaultCharset (max-target-r) visible to
         // reflection so installDefaultCharsetOverride() can fix new String(byte[]) mojibake.
         targetSdk 30
         versionCode 1
-        versionName '0.2.5-port.1'
+        versionName '0.2.5-port.2(20261107)'
+    }
+
+    // Name the packaged APK after the app instead of the default app-debug.apk.
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            output.outputFileName = "OpenDoJa For Android.apk"
+        }
     }
 
     compileOptions {
@@ -39,7 +46,7 @@ android {
 }
 
 dependencies {
-    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs_nio:2.1.4'
     implementation project(':dexlib')
 }
 

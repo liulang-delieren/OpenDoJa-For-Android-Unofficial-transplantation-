@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Two platform themes selected at runtime by AppTheme.apply(Activity):
+      night keeps the original dark look, light switches the window, dialogs and
+      default text colours to a bright Material theme.
+    -->
+    <style name="AppThemeDark" parent="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+        <item name="android:windowBackground">@color/window_background_dark</item>
+    </style>
+
+    <style name="AppThemeLight" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/window_background_light</item>
+    </style>
+</resources>

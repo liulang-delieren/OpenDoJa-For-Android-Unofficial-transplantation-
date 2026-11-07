@@ -609,7 +609,7 @@ public final class OpenDoJaLaunchArgs {
         defaults.put(SYSTEM_FONT_OVERRIDE, () -> "");
         defaults.put(FONT_SCALE, () -> "0.85");
         defaults.put(FUETREK_MIX_PROFILE, () -> "0");
-        defaults.put(OPEN_GLES_RENDERER, () -> OpenGlesRendererMode.SOFTWARE.id());
+        defaults.put(OPEN_GLES_RENDERER, () -> OpenGlesRendererMode.HARDWARE.id());
         defaults.put(SHOW_OPEN_GLES_FPS, () -> "false");
         defaults.put(OPEN_GLES_SUPERSAMPLE_SCALE, () -> "1");
         defaults.put(TRACE_OPEN_GLES_SYNC, () -> "false");

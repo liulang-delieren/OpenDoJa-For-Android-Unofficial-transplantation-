@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OpenDoJa For Android</string>
+    <string name="home_title">OpenDoJa For Android</string>
+
+    <string name="cancel">Cancel</string>
+    <string name="ok">OK</string>
+    <string name="close">Close</string>
+    <string name="delete">Delete</string>
+    <string name="show">Show</string>
+    <string name="hide">Hide</string>
+
+    <!-- Home screen -->
+    <string name="home_empty">No games installed.\nTap the button in the top-right corner and choose \"Load JAM\" to import one.</string>
+    <string name="menu_load_jam">Load JAM</string>
+    <string name="menu_key_mapping">Key mapping</string>
+    <string name="menu_delete_game">Delete game</string>
+    <string name="menu_language">Language</string>
+    <string name="menu_toggle_theme">Toggle night / light mode</string>
+    <string name="menu_about">About</string>
+    <string name="about_title">About</string>
+    <string name="about_message">OpenDoJa For Android (unofficial port)\nVersion: %1$s\nPort by: Wandering Hunter\n\nThis is an unofficial Android port of \"OpenDoJa\". Wandering Hunter ported it using the free versions of OpenCode and Xiaomi Mimo V2.6. This version exists only because Wandering Hunter wanted to play these games on an Android handheld, and tried porting them based on the OpenDoJa 0.25 source code.\n\nFor now, the compatibility of OpenDoJa For Android cannot be compared with the Windows version of OpenDoJa. This is a temporary stopgap; I have almost nothing to do with emulator development, so you are advised to wait for the official Android version of OpenDoJa.\n\nThanks:\nThe Android port referenced the JAR2DEX implementation from the open-source JL-MOD code. Thanks to the developers of JL-MOD and J2ME Loader.\nThanks to Magstic for ideas, issues and answers about some DoJa APIs during development.\nThanks to the people in the Keitai World Discord for dumping and maintaining the handsets; without you this project would not exist.\nFinally, thanks to the OpenDoJa developers. Without the OpenDoJa project I could never have attempted this Android port.\n\nThis port is open source under GPL V3.\nGithub: https://github.com/liulang-delieren/OpenDoJa-for-Android-Unofficial-Port-</string>
+    <string name="load_jam_title">Load JAM</string>
+    <string name="import_from_folder">Import from folder…</string>
+    <string name="toast_no_installed_games">No games installed</string>
+    <string name="delete_game_title">Delete game</string>
+    <string name="delete_confirm_message">Delete \"%1$s\"?\nThis also deletes the matching .jar / .sp / .dex files and their load cache. The game must be imported again to play it.</string>
+    <string name="toast_deleted_files">Deleted, removed %1$d file(s)</string>
+    <string name="toast_no_folder_picker">No folder picker available</string>
+    <string name="toast_imported_games">Imported %1$d game(s)</string>
+    <string name="toast_imported_games_partial">Imported %1$d game(s); not imported:\n%2$s</string>
+    <string name="toast_nothing_importable">This folder contains no importable games</string>
+    <string name="toast_import_failed">Import failed:\n%1$s</string>
+    <string name="error_cannot_read_folder">Cannot read the selected folder</string>
+    <string name="error_cannot_read_folder_detail">Cannot read the selected folder: %1$s</string>
+    <string name="error_no_jam_files">The selected folder contains no .jam files</string>
+    <string name="error_missing_jar">Missing .jar</string>
+    <string name="error_no_matching_jar">No .jar matching the .jam name</string>
+    <string name="error_missing_sp">Missing matching .sp (the .jam declares SPsize)</string>
+    <string name="error_game_skipped">%1$s: %2$s</string>
+    <string name="list_separator">", "</string>
+    <string name="error_cannot_read_file">Cannot read %1$s</string>
+    <string name="error_copy_failed">Copy failed: %1$s</string>
+
+    <!-- Per-game settings -->
+    <string name="settings_title">Game settings</string>
+    <string name="settings_keymap">Key mapping</string>
+    <string name="settings_keypad">Virtual keypad</string>
+    <string name="settings_renderer">Renderer</string>
+    <string name="settings_scale">Screen scaling</string>
+    <string name="renderer_default">Default (hardware accelerated)</string>
+    <string name="renderer_hardware">Hardware accelerated</string>
+    <string name="renderer_software">Software rendering</string>
+    <string name="scale_uniform">Uniform</string>
+    <string name="scale_uniform_desc">Uniform (keep aspect ratio, add black bars)</string>
+    <string name="scale_fill">Fill screen (stretch)</string>
+    <string name="scale_fill_desc">Fill screen (stretch to the whole screen, keypad drawn on top)</string>
+    <string name="scale_cover">Fill screen, uniform</string>
+    <string name="scale_cover_desc">Fill screen, uniform (scale up without cropping; no border when the resolution aligns exactly)</string>
+    <string name="summary_unknown_game">Unrecognized game file</string>
+    <string name="summary_keymap_none">Not configured (follows global)</string>
+    <string name="summary_keymap_count">%1$d key(s) bound</string>
+
+    <!-- Key mapping -->
+    <string name="keymap_title">Key mapping</string>
+    <string name="keymap_title_game">Key mapping · %1$s</string>
+    <string name="dispatch_soft_key">Soft key %1$d</string>
+    <string name="dispatch_doja_key">DoJa key %1$d</string>
+    <string name="binding_follow_global">Follows global: %1$s</string>
+    <string name="binding_none">Not bound</string>
+    <string name="key_volume_up">Volume +</string>
+    <string name="key_volume_down">Volume -</string>
+    <string name="key_volume_mute">Mute</string>
+    <string name="key_back">Back</string>
+    <string name="key_home">Home</string>
+    <string name="key_enter">Enter</string>
+    <string name="key_space">Space</string>
+    <string name="header_binding">Binding: %1$s — press a hardware key (Back to cancel)</string>
+    <string name="header_game">Tap a row and press a hardware key to bind a game-specific key; long-press to clear (follows global again); press the system Back key in-game to open the game menu.</string>
+    <string name="header_global">Tap a row and press a hardware key to bind it; long-press to clear; press the system Back key in-game to exit the game.</string>
+
+    <!-- DoJa control action names -->
+    <string name="action_digit0">Digit 0</string>
+    <string name="action_digit1">Digit 1</string>
+    <string name="action_digit2">Digit 2</string>
+    <string name="action_digit3">Digit 3</string>
+    <string name="action_digit4">Digit 4</string>
+    <string name="action_digit5">Digit 5</string>
+    <string name="action_digit6">Digit 6</string>
+    <string name="action_digit7">Digit 7</string>
+    <string name="action_digit8">Digit 8</string>
+    <string name="action_digit9">Digit 9</string>
+    <string name="action_asterisk">Asterisk</string>
+    <string name="action_pound">Pound</string>
+    <string name="action_move_left">Move left</string>
+    <string name="action_move_up">Move up</string>
+    <string name="action_move_right">Move right</string>
+    <string name="action_move_down">Move down</string>
+    <string name="action_select">Select</string>
+    <string name="action_clear">Clear</string>
+    <string name="action_soft_key_left">Soft key left</string>
+    <string name="action_soft_key_right">Soft key right</string>
+    <string name="action_menu">Menu</string>
+    <string name="action_camera">Camera</string>
+
+    <!-- In-game BACK menu -->
+    <string name="game_menu_title">Game menu</string>
+    <string name="game_menu_hide_keypad">Hide virtual keypad</string>
+    <string name="game_menu_show_keypad">Show virtual keypad</string>
+    <string name="game_menu_exit">Exit game</string>
+    <string name="toast_game_launch_failed">Game launch failed: %1$s</string>
+    <string name="error_jam_missing">Game file not found: %1$s</string>
+    <string name="error_jam_path_required">No game path specified (jamPath)</string>
+
+    <!-- Language -->
+    <string name="language_title">Language</string>
+    <string name="language_system">Follow system</string>
+    <string name="language_zh">Chinese (Simplified)</string>
+    <string name="language_en">English</string>
+</resources>

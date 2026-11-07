@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Night (default) and light window backgrounds; AppTheme picks the style. -->
+    <color name="window_background_dark">#FF000000</color>
+    <color name="window_background_light">#FFFFFFFF</color>
+</resources>

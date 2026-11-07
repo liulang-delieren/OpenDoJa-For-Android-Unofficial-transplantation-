@@ -60,7 +60,20 @@ import opendoja.host.OpenDoJaLog;
 public class HomeActivity extends Activity {
     private static final String TAG = "OpenDoJa";
     private static final int REQUEST_IMPORT_FOLDER = 1;
-    private static final String[] MENU_ITEMS = {"加载JAM", "按键映射", "删除游戏", "关于"};
+    private static final int[] MENU_ITEM_RES = {
+            R.string.menu_load_jam,
+            R.string.menu_key_mapping,
+            R.string.menu_delete_game,
+            R.string.menu_language,
+            R.string.menu_toggle_theme,
+            R.string.menu_about,
+    };
+    private static final int MENU_ACTION_LOAD_JAM = 0;
+    private static final int MENU_ACTION_KEY_MAPPING = 1;
+    private static final int MENU_ACTION_DELETE_GAME = 2;
+    private static final int MENU_ACTION_LANGUAGE = 3;
+    private static final int MENU_ACTION_THEME = 4;
+    private static final int MENU_ACTION_ABOUT = 5;
 
     private final Map<String, Bitmap> iconCache = new ConcurrentHashMap<>();
     private ExecutorService worker = Executors.newFixedThreadPool(2);
@@ -71,7 +84,13 @@ public class HomeActivity extends Activity {
     private int iconSizePx;
 
     @Override
+    protected void attachBaseContext(android.content.Context base) {
+        super.attachBaseContext(AppLanguage.wrap(base));
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
+        AppTheme.apply(this);
         super.onCreate(savedInstanceState);
         OpenDoJaLog.configureIfUnset(OpenDoJaLog.Level.DEBUG);
         computeGridMetrics();
@@ -91,8 +110,8 @@ public class HomeActivity extends Activity {
         content.setPadding(pad, pad, pad, pad);
 
         emptyView = new TextView(this);
-        emptyView.setText("暂无已安装的游戏\n点击右上角按钮选择「加载JAM」导入");
-        emptyView.setTextColor(0xFFBBBBBB);
+        emptyView.setText(R.string.home_empty);
+        emptyView.setTextColor(AppTheme.secondaryText(this));
         emptyView.setTextSize(15f);
         emptyView.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams emptyParams = matchWrap();
@@ -127,16 +146,17 @@ public class HomeActivity extends Activity {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setBackgroundColor(Color.rgb(26, 28, 34));
+        bar.setBackgroundColor(AppTheme.titleBar(this));
         bar.setPadding(0, 0, dp(4), 0);
 
         TextView title = new TextView(this);
-        title.setText("OpenDoja For Android");
-        title.setTextColor(Color.WHITE);
+        title.setText(R.string.home_title);
+        title.setTextColor(AppTheme.primaryText(this));
         title.setTextSize(17f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setSingleLine(true);
         title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         title.setPadding(dp(16), 0, dp(8), 0);
         bar.addView(title, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.MATCH_PARENT, 1f));
@@ -144,13 +164,14 @@ public class HomeActivity extends Activity {
         TextView menuButton = new TextView(this);
         menuButton.setText("⋮");
         menuButton.setTextSize(26f);
-        menuButton.setTextColor(Color.WHITE);
+        menuButton.setTextColor(AppTheme.primaryText(this));
         menuButton.setGravity(Gravity.CENTER);
         menuButton.setPadding(dp(16), 0, dp(16), 0);
         menuButton.setClickable(true);
         menuButton.setFocusable(true);
         menuButton.setBackground(new RippleDrawable(
-                ColorStateList.valueOf(0x33FFFFFF), null, new ColorDrawable(0x1FFFFFFF)));
+                ColorStateList.valueOf(AppTheme.ripplePress(this)), null,
+                new ColorDrawable(AppTheme.pick(this, 0x1FFFFFFF, 0x10000000))));
         menuButton.setOnClickListener(this::showOptionsMenu);
         bar.addView(menuButton, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
@@ -159,7 +180,7 @@ public class HomeActivity extends Activity {
 
     private View buildDivider() {
         View divider = new View(this);
-        divider.setBackgroundColor(0xFF3A3D45);
+        divider.setBackgroundColor(AppTheme.divider(this));
         return divider;
     }
 
@@ -174,26 +195,28 @@ public class HomeActivity extends Activity {
         menu.setMinimumWidth(dp(180));
         menu.setPadding(dp(4), dp(4), dp(4), dp(4));
         GradientDrawable panel = new GradientDrawable();
-        panel.setColor(0xF020242E);
+        panel.setColor(AppTheme.menuBackground(this));
+        panel.setStroke(dp(1), AppTheme.pick(this, 0x00000000, 0xFFD7DADF));
         panel.setCornerRadius(dp(8));
         menu.setBackground(panel);
 
-        for (String label : MENU_ITEMS) {
+        for (int i = 0; i < MENU_ITEM_RES.length; i++) {
+            final int menuAction = i;
             TextView item = new TextView(this);
-            item.setText(label);
-            item.setTextColor(0xFFE8E8E8);
+            item.setText(MENU_ITEM_RES[i]);
+            item.setTextColor(AppTheme.rowText(this));
             item.setTextSize(16f);
             item.setGravity(Gravity.CENTER_VERTICAL);
             item.setPadding(dp(18), dp(14), dp(18), dp(14));
             item.setClickable(true);
             item.setForeground(new RippleDrawable(
-                    ColorStateList.valueOf(0x2FFFFFFF), null, null));
+                    ColorStateList.valueOf(AppTheme.ripplePress(this)), null, null));
             item.setOnClickListener(v -> {
                 if (menuPopup != null) {
                     menuPopup.dismiss();
                     menuPopup = null;
                 }
-                onMenuAction(label);
+                onMenuAction(menuAction);
             });
             menu.addView(item, new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -210,18 +233,24 @@ public class HomeActivity extends Activity {
         menuPopup = popup;
     }
 
-    private void onMenuAction(String label) {
-        switch (label) {
-            case "加载JAM":
+    private void onMenuAction(int action) {
+        switch (action) {
+            case MENU_ACTION_LOAD_JAM:
                 onLoadJamClicked();
                 break;
-            case "按键映射":
+            case MENU_ACTION_KEY_MAPPING:
                 startActivity(new Intent(this, KeyMappingActivity.class));
                 break;
-            case "删除游戏":
+            case MENU_ACTION_DELETE_GAME:
                 onDeleteClicked();
                 break;
-            case "关于":
+            case MENU_ACTION_LANGUAGE:
+                chooseLanguage();
+                break;
+            case MENU_ACTION_THEME:
+                AppTheme.toggle(this);
+                break;
+            case MENU_ACTION_ABOUT:
                 showAboutDialog();
                 break;
             default:
@@ -229,36 +258,53 @@ public class HomeActivity extends Activity {
         }
     }
 
-    private void showAboutDialog() {
-        String about = "OpenDoJa For Android(非官方移植)\n"
-                + "移植：流浪的猎人(Wandering Hunter)\n"
-                + "\n"
-                + "这是“OpenDoJa”的非官方Android移植，由流浪的猎人(Wandering Hunter)"
-                + "使用OpenCode+Xiaomi Mimo V2.6免费版实现移植，这个版本的出现只是因为"
-                + "流浪的猎人自己想在Android掌机上玩这些游戏，然后尝试基于OpenDoJa 0.25版本"
-                + "的源代码实现了移植。\n"
-                + "\n"
-                + "目前OpenDoJa For Android的兼容性暂时无法和OpenDoJa的Windows版本相对比，"
-                + "这是一个临时过渡方案，我本人和模拟器开发几乎是沾不上边的，建议各位还是"
-                + "等待OpenDoJa的官方Android版本。\n"
-                + "\n"
-                + "感谢名单：\n"
-                + "本项目在开发Android版本的过程中引用了JL-MOD开源代码里面的JAR2DEX实现方式，"
-                + "这里要感谢JL-MOD和J2ME Loader的开发者。\n"
-                + "还有Magstic在本项目开发过程中提供的一些思路和指出的问题，还有对部分Doja "
-                + "API问题的解答。\n"
-                + "还有Keitai World Discord频道的一些人，没有你们在这之前对手机的Dump和维护"
-                + "就不会有这个项目了。\n"
-                + "最后我还要感谢OpenDoJa的开发者，如果没有OpenDoja项目，我是没有可能在他的"
-                + "基础之上尝试移植到Android系统的。\n"
-                + "\n"
-                + "本移植项目遵守GPL V3协议开源代码。\n"
-                + "Github：https://github.com/liulang-delieren/OpenDoJa-for-Android-Unofficial-Port-";
+    /** Language picker: follow the system locale, or force Simplified Chinese / English. */
+    private void chooseLanguage() {
+        final String[] values = {AppLanguage.SYSTEM, AppLanguage.ZH, AppLanguage.EN};
+        String[] labels = {
+                getString(R.string.language_system),
+                getString(R.string.language_zh),
+                getString(R.string.language_en),
+        };
+        String current = AppLanguage.current(this);
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) {
+            if (values[i].equals(current)) {
+                checked = i;
+                break;
+            }
+        }
+        final int[] selected = {checked};
         new AlertDialog.Builder(this)
-                .setTitle("关于")
-                .setMessage(about)
-                .setPositiveButton("关闭", null)
+                .setTitle(R.string.language_title)
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> selected[0] = which)
+                .setPositiveButton(R.string.ok, (dialog, which) -> {
+                    String target = values[selected[0]];
+                    if (!target.equals(AppLanguage.current(this))) {
+                        AppLanguage.set(this, target);
+                        recreate();
+                    }
+                })
+                .setNegativeButton(R.string.cancel, null)
                 .show();
+    }
+
+    private void showAboutDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.about_title)
+                .setMessage(getString(R.string.about_message, appVersion()))
+                .setPositiveButton(R.string.close, null)
+                .show();
+    }
+
+    /** Installed versionName, e.g. {@code 0.2.5-port.2(20261107)}. */
+    private String appVersion() {
+        try {
+            String name = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            return name != null ? name : "?";
+        } catch (android.content.pm.PackageManager.NameNotFoundException exception) {
+            return "?";
+        }
     }
 
     /** Icon size derives from physical PPI; the grid is a fixed 5 columns per row. */
@@ -431,22 +477,24 @@ public class HomeActivity extends Activity {
         cell.setClickable(true);
         cell.setFocusable(true);
 
-        GradientDrawable tile = new GradientDrawable();
-        tile.setColor(0xFF161A20);
-        tile.setCornerRadius(dp(10));
-        tile.setStroke(dp(1), 0xFF2A2E36);
-        cell.setBackground(tile);
+        // No tile background: icons sit directly on the grid background. The
+        // rounded drawable is kept only as a ripple mask so the press
+        // highlight still follows the tile shape.
+        GradientDrawable rippleMask = new GradientDrawable();
+        rippleMask.setColor(0xFFFFFFFF);
+        rippleMask.setCornerRadius(dp(10));
         cell.setForeground(new RippleDrawable(
-                ColorStateList.valueOf(0x33FFFFFF), null, tile));
+                ColorStateList.valueOf(AppTheme.ripplePress(this)), null, rippleMask));
 
         ImageView icon = new ImageView(this);
         icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        icon.setBackgroundColor(Color.WHITE);
         icon.setImageBitmap(game.icon);
         cell.addView(icon, new LinearLayout.LayoutParams(iconSizePx, iconSizePx));
 
         TextView name = new TextView(this);
         name.setText(game.displayName);
-        name.setTextColor(0xFFE0E0E0);
+        name.setTextColor(AppTheme.pick(this, 0xFFE0E0E0, 0xFF1F2328));
         name.setTextSize(13f);
         name.setGravity(Gravity.CENTER);
         name.setMaxLines(2);
@@ -456,7 +504,19 @@ public class HomeActivity extends Activity {
         cell.addView(name, nameParams);
 
         cell.setOnClickListener(v -> launchJam(game.jam));
+        cell.setOnLongClickListener(v -> {
+            openGameSettings(game);
+            return true;
+        });
         return cell;
+    }
+
+    /** Long-press on a game tile opens that game's own settings (key mapping, ...). */
+    private void openGameSettings(GameEntry game) {
+        Intent intent = new Intent(this, GameSettingsActivity.class);
+        intent.putExtra(GameSettingsActivity.EXTRA_JAM_PATH, game.jam.getAbsolutePath());
+        intent.putExtra(GameSettingsActivity.EXTRA_GAME_NAME, game.displayName);
+        startActivity(intent);
     }
 
     private static LinearLayout.LayoutParams matchWrap() {
@@ -485,10 +545,10 @@ public class HomeActivity extends Activity {
         for (int i = 0; i < jamList.size(); i++) {
             labels[i] = describeJam(jamList.get(i));
         }
-        labels[jamList.size()] = "从文件夹导入…";
+        labels[jamList.size()] = getString(R.string.import_from_folder);
 
         new AlertDialog.Builder(this)
-                .setTitle("加载 JAM")
+                .setTitle(R.string.load_jam_title)
                 .setItems(labels, (dialog, which) -> {
                     if (which < jamList.size()) {
                         launchJam(jamList.get(which));
@@ -496,7 +556,7 @@ public class HomeActivity extends Activity {
                         pickImportFolder();
                     }
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(R.string.cancel, null)
                 .show();
     }
 
@@ -525,7 +585,7 @@ public class HomeActivity extends Activity {
         final File[] jams = found == null ? new File[0] : found;
         Arrays.sort(jams, Comparator.comparing(File::getName));
         if (jams.length == 0) {
-            Toast.makeText(this, "没有已安装的游戏", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.toast_no_installed_games, Toast.LENGTH_SHORT).show();
             return;
         }
         String[] labels = new String[jams.length];
@@ -533,23 +593,23 @@ public class HomeActivity extends Activity {
             labels[i] = describeJam(jams[i]);
         }
         new AlertDialog.Builder(this)
-                .setTitle("删除游戏")
+                .setTitle(R.string.delete_game_title)
                 .setItems(labels, (dialog, which) -> confirmDelete(jams[which]))
-                .setNegativeButton("取消", null)
+                .setNegativeButton(R.string.cancel, null)
                 .show();
     }
 
     private void confirmDelete(File jam) {
         new AlertDialog.Builder(this)
-                .setTitle("删除游戏")
-                .setMessage("确定删除「" + describeJam(jam) + "」吗？\n"
-                        + "将同时删除同名的 .jar / .sp / .dex 及其加载缓存，删除后需重新导入才能游玩。")
-                .setPositiveButton("删除", (dialog, which) -> {
+                .setTitle(R.string.delete_game_title)
+                .setMessage(getString(R.string.delete_confirm_message, describeJam(jam)))
+                .setPositiveButton(R.string.delete, (dialog, which) -> {
                     int deleted = deleteGameFiles(jam);
-                    Toast.makeText(this, "已删除，清理 " + deleted + " 个文件", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.toast_deleted_files, deleted),
+                            Toast.LENGTH_SHORT).show();
                     refreshGames();
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(R.string.cancel, null)
                 .show();
     }
 
@@ -571,6 +631,14 @@ public class HomeActivity extends Activity {
         }
         File dexCache = new File(getCodeCacheDir(), "jam-dex");
         deleted += deleteMatchingRecursive(dexCache, base);
+        // Drop this game's own keymap layer so a re-imported game with the same
+        // name does not inherit stale per-game bindings.
+        String gameKey = KeyMappingActivity.gameKeyFromJamPath(jam.getAbsolutePath());
+        if (gameKey != null) {
+            getSharedPreferences(KeyMappingActivity.prefsNameForGame(gameKey), MODE_PRIVATE)
+                    .edit().clear().apply();
+            GameSettingsActivity.clearGameSettings(this, gameKey);
+        }
         return deleted;
     }
 
@@ -612,7 +680,7 @@ public class HomeActivity extends Activity {
         try {
             startActivityForResult(intent, REQUEST_IMPORT_FOLDER);
         } catch (RuntimeException exception) {
-            Toast.makeText(this, "没有可用的文件夹选择器", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, R.string.toast_no_folder_picker, Toast.LENGTH_LONG).show();
         }
     }
 
@@ -628,18 +696,18 @@ public class HomeActivity extends Activity {
         }
         ImportResult result = importJamFolder(treeUri);
         if (result.games > 0) {
-            StringBuilder message = new StringBuilder("已导入 " + result.games + " 个游戏");
-            if (!result.errors.isEmpty()) {
-                message.append("，未导入:\n").append(String.join("\n", result.errors));
-            }
-            Toast.makeText(this, message.toString(),
+            String message = result.errors.isEmpty()
+                    ? getString(R.string.toast_imported_games, result.games)
+                    : getString(R.string.toast_imported_games_partial, result.games,
+                            String.join("\n", result.errors));
+            Toast.makeText(this, message,
                     result.errors.isEmpty() ? Toast.LENGTH_SHORT : Toast.LENGTH_LONG).show();
             refreshGames();
+        } else if (result.errors.isEmpty()) {
+            Toast.makeText(this, R.string.toast_nothing_importable, Toast.LENGTH_LONG).show();
         } else {
-            String detail = result.errors.isEmpty()
-                    ? "该文件夹里没有可导入的游戏"
-                    : String.join("\n", result.errors);
-            Toast.makeText(this, "导入失败:\n" + detail, Toast.LENGTH_LONG).show();
+            Toast.makeText(this, getString(R.string.toast_import_failed,
+                    String.join("\n", result.errors)), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -663,7 +731,7 @@ public class HomeActivity extends Activity {
                 DocumentsContract.Document.COLUMN_MIME_TYPE,
         }, null, null, null)) {
             if (cursor == null) {
-                result.errors.add("无法读取所选文件夹");
+                result.errors.add(getString(R.string.error_cannot_read_folder));
                 return result;
             }
             while (cursor.moveToNext()) {
@@ -678,13 +746,14 @@ public class HomeActivity extends Activity {
             }
         } catch (RuntimeException exception) {
             Log.w(TAG, "folder listing failed", exception);
-            result.errors.add("无法读取所选文件夹: " + exception.getMessage());
+            result.errors.add(getString(R.string.error_cannot_read_folder_detail,
+                    exception.getMessage()));
             return result;
         }
 
         List<String> jamNames = namesEndingIn(childDocs, ".jam");
         if (jamNames.isEmpty()) {
-            result.errors.add("所选文件夹里没有 .jam 文件");
+            result.errors.add(getString(R.string.error_no_jam_files));
             return result;
         }
         List<String> jarNames = namesEndingIn(childDocs, ".jar");
@@ -698,21 +767,22 @@ public class HomeActivity extends Activity {
             String jarName = findChild(childDocs, base + ".jar");
             if (jarName == null) {
                 if (jarNames.isEmpty()) {
-                    reasons.add("缺少 .jar");
+                    reasons.add(getString(R.string.error_missing_jar));
                 } else if (jarNames.size() == 1) {
                     jarName = jarNames.get(0);
                 } else {
-                    reasons.add("找不到与 .jam 同名的 .jar");
+                    reasons.add(getString(R.string.error_no_matching_jar));
                 }
             }
 
             String spName = findChild(childDocs, base + ".sp");
             if (spName == null && jamDeclaresScratchpad(treeUri, childDocs.get(jamName.toLowerCase()))) {
-                reasons.add("缺少同名 .sp（.jam 声明了 SPsize）");
+                reasons.add(getString(R.string.error_missing_sp));
             }
 
             if (!reasons.isEmpty()) {
-                result.errors.add(jamName + ": " + String.join("、", reasons));
+                result.errors.add(getString(R.string.error_game_skipped, jamName,
+                        String.join(getString(R.string.list_separator), reasons)));
                 continue;
             }
 
@@ -736,7 +806,7 @@ public class HomeActivity extends Activity {
             try (InputStream in = resolver.openInputStream(documentUri);
                  OutputStream out = new FileOutputStream(new File(gamesDir, destName))) {
                 if (in == null) {
-                    result.errors.add("无法读取 " + source.displayName);
+                    result.errors.add(getString(R.string.error_cannot_read_file, source.displayName));
                     continue;
                 }
                 byte[] buffer = new byte[8192];
@@ -747,7 +817,7 @@ public class HomeActivity extends Activity {
                 result.files++;
             } catch (IOException | SecurityException exception) {
                 Log.w(TAG, "cannot import " + source.displayName, exception);
-                result.errors.add("复制失败: " + source.displayName);
+                result.errors.add(getString(R.string.error_copy_failed, source.displayName));
             }
         }
         return result;

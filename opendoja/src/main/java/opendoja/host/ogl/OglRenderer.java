@@ -2,6 +2,7 @@ package opendoja.host.ogl;
 
 import com.nttdocomo.ui.ogl.*;
 import opendoja.host.DesktopSurface;
+import opendoja.host.FramePhaseTrace;
 import opendoja.host.OpenDoJaLaunchArgs;
 import opendoja.host.OpenGlesRendererMode;
 
@@ -17,6 +18,8 @@ public class OglRenderer {
     private static final int OGL_TEXTURE_UNIT_COUNT = 1;
     private static final int OGL_MAX_VERTEX_UNITS = 8;
     private static final int OGL_MAX_PALETTE_MATRICES = 32;
+    private static final int OGL_MAX_TEXTURE_SIZE = 2048;
+    private static final int OGL_DEPTH_BITS = 24;
     private static final SharedGlObjectStore SHARED_GL_OBJECT_STORE = new SharedGlObjectStore();
 
     public interface Host {
@@ -855,6 +858,32 @@ public final void glWeightPointerOES(int size, int type, int stride, int pointer
     ogl.weightPointer = OglPointer.bufferObject(size, type, stride, requireArrayBuffer(), pointer);
 }
 
+private int pointSizeDiagCount;
+
+public final void glPointSize(float size) {
+    if (pointSizeDiagCount < 10) {
+        pointSizeDiagCount++;
+        System.out.println("INFO [jam-launch] [HWDIAG] glPointSize size=" + size);
+    }
+}
+
+public final void glPointSizePointerOES(int type, int stride, DirectBuffer pointer) {
+    if (pointSizeDiagCount < 10) {
+        pointSizeDiagCount++;
+        System.out.println("INFO [jam-launch] [HWDIAG] glPointSizePointerOES type=0x"
+                + Integer.toHexString(type) + " stride=" + stride
+                + " len=" + (pointer == null ? -1 : pointer.length()));
+    }
+}
+
+public final void glPointSizePointerOES(int type, int stride, int pointer) {
+    if (pointSizeDiagCount < 10) {
+        pointSizeDiagCount++;
+        System.out.println("INFO [jam-launch] [HWDIAG] glPointSizePointerOES(vbo) type=0x"
+                + Integer.toHexString(type) + " stride=" + stride + " ptr=" + pointer);
+    }
+}
+
 public final void glDrawArrays(int mode, int first, int count) {
     host.markOpenGlesActivity();
     drawOgl(mode, first, count, null);
@@ -912,8 +941,10 @@ public final void glGetIntegerv(int pname, int[] params) {
         throw new IllegalArgumentException("params");
     }
     switch (pname) {
+        case GraphicsOGL.GL_MAX_TEXTURE_SIZE -> params[0] = OGL_MAX_TEXTURE_SIZE;
         case GraphicsOGL.GL_MAX_LIGHTS -> params[0] = 8;
         case GraphicsOGL.GL_MAX_TEXTURE_UNITS -> params[0] = OGL_TEXTURE_UNIT_COUNT;
+        case GraphicsOGL.GL_DEPTH_BITS -> params[0] = OGL_DEPTH_BITS;
         case GraphicsOGL.GL_MAX_PALETTE_MATRICES_OES -> params[0] = OGL_MAX_PALETTE_MATRICES;
         case GraphicsOGL.GL_MAX_VERTEX_UNITS_OES -> params[0] = OGL_MAX_VERTEX_UNITS;
         default -> ogl.lastError = GraphicsOGL.GL_INVALID_ENUM;
@@ -1210,7 +1241,9 @@ private void drawOgl(int mode, int first, int count, OglIndexSource indexSource)
     }
     hardware.flush();
     host.onSoftwareSurfaceMutation();
+    long traceStart = FramePhaseTrace.begin();
     software.draw(mode, first, count, indexSource);
+    FramePhaseTrace.end(FramePhaseTrace.RASTER, traceStart);
 }
 
     // Shared transform and buffer-decoding helpers used by both backends.
@@ -1550,6 +1583,17 @@ int readUnsignedByteComponent(OglPointer pointer, int vertexIndex, int component
     return 0;
 }
 
+int readColorComponent(OglPointer pointer, int vertexIndex, int componentIndex) {
+    return switch (pointer.type()) {
+        case GraphicsOGL.GL_UNSIGNED_BYTE -> readUnsignedByteComponent(pointer, vertexIndex, componentIndex);
+        case GraphicsOGL.GL_FLOAT -> clampOglChannel(readFloatComponent(pointer, vertexIndex, componentIndex));
+        default -> {
+            ogl.lastError = GraphicsOGL.GL_INVALID_ENUM;
+            yield 0;
+        }
+    };
+}
+
 private float readDirectByteComponent(OglPointer pointer, int byteOffset) {
     if (!(pointer.pointer() instanceof ByteBuffer byteBuffer)) {
         ogl.lastError = GraphicsOGL.GL_INVALID_VALUE;
@@ -1668,6 +1712,9 @@ void drawRasterTriangle(RasterVertex v0, RasterVertex v1, RasterVertex v2, int[]
     }
     if (count < 3) {
         return;
+    }
+    if (FramePhaseTrace.ENABLED) {
+        FramePhaseTrace.addTriangles(count - 2);
     }
     RasterVertex first = input[0];
     for (int i = 1; i + 1 < count; i++) {
@@ -1791,8 +1838,28 @@ private void rasterizeProjectedTriangle(RasterVertex v0, RasterVertex v1, Raster
     boolean texturing = ogl.textureEnabled();
     OglTexture texture = texturing ? ogl.boundTexture() : null;
     boolean depthEnabled = ogl.depthEnabled();
+    int depthFunc = ogl.depthFunc;
     boolean blendEnabled = ogl.blendCapEnabled;
+    int blendSrcFactor = ogl.blendSrcFactor;
+    int blendDstFactor = ogl.blendDstFactor;
     boolean depthWriteEnabled = ogl.depthMask && depthEnabled;
+    boolean genericBlend = blendEnabled && !((blendSrcFactor == GraphicsOGL.GL_ONE && blendDstFactor == GraphicsOGL.GL_ZERO)
+            || (blendSrcFactor == GraphicsOGL.GL_SRC_ALPHA && blendDstFactor == GraphicsOGL.GL_ONE_MINUS_SRC_ALPHA)
+            || (blendSrcFactor == GraphicsOGL.GL_ONE && blendDstFactor == GraphicsOGL.GL_ONE_MINUS_SRC_ALPHA));
+    boolean linearFilter = texturing && (texture.minFilter == GraphicsOGL.GL_LINEAR || texture.magFilter == GraphicsOGL.GL_LINEAR);
+    boolean nonModulateEnv = texturing && ogl.textureEnvMode != GraphicsOGL.GL_MODULATE;
+    boolean alphaTestEnabled = ogl.alphaTestEnabled;
+    int alphaFunc = ogl.alphaFunc;
+    float alphaRef = ogl.alphaRef;
+    boolean shadeFlat = ogl.shadeModel == GraphicsOGL.GL_FLAT;
+    int c0 = useBackColor ? v0.backColor : v0.color;
+    int c1 = useBackColor ? v1.backColor : v1.color;
+    int c2 = useBackColor ? v2.backColor : v2.color;
+    boolean replaceTexture = texturing && ogl.textureEnvMode == GraphicsOGL.GL_REPLACE;
+    boolean needPrimary = !replaceTexture;
+    boolean interpolateGouraud = needPrimary && !shadeFlat && !(c0 == c1 && c1 == c2);
+    int primaryConstant = needPrimary ? (shadeFlat ? c2 : c0) : 0;
+    boolean needQ = texturing || interpolateGouraud;
     float startX = minX + 0.5f;
     float startY = minY + 0.5f;
     float edge0Row = edge(v1.x, v1.y, v2.x, v2.y, startX, startY);
@@ -1804,53 +1871,170 @@ private void rasterizeProjectedTriangle(RasterVertex v0, RasterVertex v1, Raster
     float edge0StepY = v1.x - v2.x;
     float edge1StepY = v2.x - v0.x;
     float edge2StepY = v0.x - v1.x;
+    long testedPixels = 0L;
+    long writtenPixels = 0L;
+    long genericBlendPx = 0L;
+    long linearFilterPx = 0L;
+    long nonModulateEnvPx = 0L;
+    long edgeFailPx = 0L;
+    long depthFailPx = 0L;
+    boolean areaPositive = inverseArea > 0f;
+    boolean areaNaN = Float.isNaN(inverseArea);
     for (int y = minY; y <= maxY; y++) {
         float edge0Value = edge0Row;
         float edge1Value = edge1Row;
         float edge2Value = edge2Row;
-        for (int x = minX; x <= maxX; x++) {
-            float w0 = edge0Value * inverseArea;
-            float w1 = edge1Value * inverseArea;
-            float w2 = edge2Value * inverseArea;
-            edge0Value += edge0StepX;
-            edge1Value += edge1StepX;
-            edge2Value += edge2StepX;
-            if (w0 < 0f || w1 < 0f || w2 < 0f) {
-                continue;
-            }
-            float depth = (w0 * v0.depth) + (w1 * v1.depth) + (w2 * v2.depth);
-            int offset = (y * width) + x;
-            if (!passesDepth(depth, depthBuffer[offset])) {
-                continue;
-            }
-            float denominator = Math.max(0.000001f,
-                    (w0 * reciprocalW0) + (w1 * reciprocalW1) + (w2 * reciprocalW2));
-            float u;
-            float v;
-            if (texturing) {
-                u = ((w0 * v0.u * reciprocalW0) + (w1 * v1.u * reciprocalW1) + (w2 * v2.u * reciprocalW2)) / denominator;
-                v = ((w0 * v0.v * reciprocalW0) + (w1 * v1.v * reciprocalW1) + (w2 * v2.v * reciprocalW2)) / denominator;
+        // Conservative per-row span: pixels outside [xLo, xHi] can never pass the
+        // w>=0 edge test below, so skipping them cannot change the output. Bounds
+        // come from freshly evaluated edge values (no accumulation drift) plus an
+        // adaptive slack that grows for near-horizontal edges, and the unchanged
+        // per-pixel test inside the span keeps the result bit-identical.
+        int rowWidth = maxX - minX;
+        int xLo = 0;
+        int xHi = rowWidth;
+        boolean rowEmpty = false;
+        if (!areaNaN) {
+            float rowCenter = y + 0.5f;
+            float p0 = edge(v1.x, v1.y, v2.x, v2.y, startX, rowCenter);
+            if (edge0StepX == 0f) {
+                rowEmpty = areaPositive ? p0 < 0f : p0 > 0f;
             } else {
-                u = 0f;
-                v = 0f;
+                float bound = -p0 / edge0StepX;
+                if (!Float.isNaN(bound)) {
+                    int slack = 2 + (int) Math.ceil(2f / Math.abs(edge0StepX));
+                    if (slack > rowWidth + 4) slack = rowWidth + 4;
+                    if ((edge0StepX > 0f) == areaPositive) {
+                        int lo = (int) Math.ceil(bound) - slack;
+                        if (lo > xLo) xLo = lo;
+                    } else {
+                        int hi = (int) Math.floor(bound) + slack;
+                        if (hi < xHi) xHi = hi;
+                    }
+                }
             }
-            int primaryColor = interpolateColor(v0, v1, v2, w0, w1, w2, denominator, useBackColor);
-            int sampled = texturing ? texture.sample(u, v) : 0xFFFFFFFF;
-            int fragmentColor = applyTextureEnvironment(primaryColor, sampled, texture);
-            if (!passesAlphaTest(fragmentColor)) {
-                continue;
+            if (!rowEmpty) {
+                float p1 = edge(v2.x, v2.y, v0.x, v0.y, startX, rowCenter);
+                if (edge1StepX == 0f) {
+                    rowEmpty = areaPositive ? p1 < 0f : p1 > 0f;
+                } else {
+                    float bound = -p1 / edge1StepX;
+                    if (!Float.isNaN(bound)) {
+                        int slack = 2 + (int) Math.ceil(2f / Math.abs(edge1StepX));
+                        if (slack > rowWidth + 4) slack = rowWidth + 4;
+                        if ((edge1StepX > 0f) == areaPositive) {
+                            int lo = (int) Math.ceil(bound) - slack;
+                            if (lo > xLo) xLo = lo;
+                        } else {
+                            int hi = (int) Math.floor(bound) + slack;
+                            if (hi < xHi) xHi = hi;
+                        }
+                    }
+                }
             }
-            int blended = blendEnabled
-                    ? blend(fragmentColor, pixels[offset], ogl.blendSrcFactor, ogl.blendDstFactor)
-                    : fragmentColor;
-            pixels[offset] = blended;
-            if (depthWriteEnabled) {
-                depthBuffer[offset] = depth;
+            if (!rowEmpty) {
+                float p2 = edge(v0.x, v0.y, v1.x, v1.y, startX, rowCenter);
+                if (edge2StepX == 0f) {
+                    rowEmpty = areaPositive ? p2 < 0f : p2 > 0f;
+                } else {
+                    float bound = -p2 / edge2StepX;
+                    if (!Float.isNaN(bound)) {
+                        int slack = 2 + (int) Math.ceil(2f / Math.abs(edge2StepX));
+                        if (slack > rowWidth + 4) slack = rowWidth + 4;
+                        if ((edge2StepX > 0f) == areaPositive) {
+                            int lo = (int) Math.ceil(bound) - slack;
+                            if (lo > xLo) xLo = lo;
+                        } else {
+                            int hi = (int) Math.floor(bound) + slack;
+                            if (hi < xHi) xHi = hi;
+                        }
+                    }
+                }
+            }
+        }
+        if (!rowEmpty && xLo <= xHi) {
+            int xFrom = minX + Math.max(0, xLo);
+            int xTo = minX + Math.min(maxX - minX, xHi);
+            int spanShift = xFrom - minX;
+            edge0Value += edge0StepX * spanShift;
+            edge1Value += edge1StepX * spanShift;
+            edge2Value += edge2StepX * spanShift;
+            for (int x = xFrom; x <= xTo; x++) {
+                testedPixels++;
+                float w0 = edge0Value * inverseArea;
+                float w1 = edge1Value * inverseArea;
+                float w2 = edge2Value * inverseArea;
+                edge0Value += edge0StepX;
+                edge1Value += edge1StepX;
+                edge2Value += edge2StepX;
+                if (w0 < 0f || w1 < 0f || w2 < 0f) {
+                    edgeFailPx++;
+                    continue;
+                }
+                int offset = (y * width) + x;
+                float depth = 0f;
+                if (depthEnabled) {
+                    depth = (w0 * v0.depth) + (w1 * v1.depth) + (w2 * v2.depth);
+                    if (!passesDepth(depth, depthBuffer[offset], depthFunc)) {
+                        depthFailPx++;
+                        continue;
+                    }
+                }
+                int primaryColor = primaryConstant;
+                if (needQ) {
+                    float denominator = Math.max(0.000001f,
+                            (w0 * reciprocalW0) + (w1 * reciprocalW1) + (w2 * reciprocalW2));
+                    float invDenominator = 1f / denominator;
+                    float q0 = w0 * reciprocalW0;
+                    float q1 = w1 * reciprocalW1;
+                    float q2 = w2 * reciprocalW2;
+                    if (interpolateGouraud) {
+                        primaryColor = interpolateColor(c0, c1, c2, q0, q1, q2, invDenominator);
+                    }
+                    if (texturing) {
+                        float u = ((q0 * v0.u) + (q1 * v1.u) + (q2 * v2.u)) * invDenominator;
+                        float v = ((q0 * v0.v) + (q1 * v1.v) + (q2 * v2.v)) * invDenominator;
+                        int sampled = texture.sample(u, v);
+                        int fragmentColor = applyTextureEnvironment(primaryColor, sampled, texture);
+                        if (alphaTestEnabled && !passesAlphaTest(fragmentColor, alphaFunc, alphaRef)) {
+                            continue;
+                        }
+                        int blended = blendEnabled
+                                ? blend(fragmentColor, pixels[offset], blendSrcFactor, blendDstFactor)
+                                : fragmentColor;
+                        pixels[offset] = blended;
+                        writtenPixels++;
+                        if (genericBlend) genericBlendPx++;
+                        if (linearFilter) linearFilterPx++;
+                        if (nonModulateEnv) nonModulateEnvPx++;
+                        if (depthWriteEnabled) {
+                            depthBuffer[offset] = depth;
+                        }
+                        continue;
+                    }
+                }
+                int fragmentColor = primaryColor;
+                if (alphaTestEnabled && !passesAlphaTest(fragmentColor, alphaFunc, alphaRef)) {
+                    continue;
+                }
+                int blended = blendEnabled
+                        ? blend(fragmentColor, pixels[offset], blendSrcFactor, blendDstFactor)
+                        : fragmentColor;
+                pixels[offset] = blended;
+                writtenPixels++;
+                if (genericBlend) genericBlendPx++;
+                if (linearFilter) linearFilterPx++;
+                if (nonModulateEnv) nonModulateEnvPx++;
+                if (depthWriteEnabled) {
+                    depthBuffer[offset] = depth;
+                }
             }
         }
         edge0Row += edge0StepY;
         edge1Row += edge1StepY;
         edge2Row += edge2StepY;
+    }
+    if (FramePhaseTrace.ENABLED) {
+        FramePhaseTrace.addRasterPixels(testedPixels, writtenPixels, genericBlendPx, linearFilterPx, nonModulateEnvPx, edgeFailPx, depthFailPx);
     }
 }
 
@@ -1911,11 +2095,8 @@ private boolean isFrontFacing(RasterVertex v0, RasterVertex v1, RasterVertex v2)
     return ogl.frontFace == GraphicsOGL.GL_CCW ? ccw : !ccw;
 }
 
-private boolean passesDepth(float incoming, float existing) {
-    if (!ogl.depthEnabled()) {
-        return true;
-    }
-    return switch (ogl.depthFunc) {
+private boolean passesDepth(float incoming, float existing, int depthFunc) {
+    return switch (depthFunc) {
         case GraphicsOGL.GL_LESS -> incoming > existing + 0.00001f;
         case GraphicsOGL.GL_LEQUAL -> incoming >= existing - 0.00001f;
         case GraphicsOGL.GL_EQUAL -> Math.abs(incoming - existing) <= 0.00001f;
@@ -1927,22 +2108,19 @@ private boolean passesDepth(float incoming, float existing) {
     };
 }
 
-private boolean passesAlphaTest(int color) {
-    return passesAlphaTestAlpha((color >>> 24) & 0xFF);
+private static boolean passesAlphaTest(int color, int alphaFunc, float alphaRef) {
+    return passesAlphaTestAlpha((color >>> 24) & 0xFF, alphaFunc, alphaRef);
 }
 
-private boolean passesAlphaTestAlpha(int alphaByte) {
-    if (!ogl.alphaTestEnabled) {
-        return true;
-    }
-    float alpha = alphaByte / 255f;
-    return switch (ogl.alphaFunc) {
-        case GraphicsOGL.GL_NOTEQUAL -> Math.abs(alpha - ogl.alphaRef) > 0.0001f;
-        case GraphicsOGL.GL_GREATER -> alpha > ogl.alphaRef;
-        case GraphicsOGL.GL_GEQUAL -> alpha >= ogl.alphaRef;
-        case GraphicsOGL.GL_EQUAL -> Math.abs(alpha - ogl.alphaRef) <= 0.0001f;
-        case GraphicsOGL.GL_LESS -> alpha < ogl.alphaRef;
-        case GraphicsOGL.GL_LEQUAL -> alpha <= ogl.alphaRef;
+private static boolean passesAlphaTestAlpha(int alphaByte, int alphaFunc, float alphaRef) {
+    float alpha = alphaByte * (1f / 255f);
+    return switch (alphaFunc) {
+        case GraphicsOGL.GL_NOTEQUAL -> Math.abs(alpha - alphaRef) > 0.0001f;
+        case GraphicsOGL.GL_GREATER -> alpha > alphaRef;
+        case GraphicsOGL.GL_GEQUAL -> alpha >= alphaRef;
+        case GraphicsOGL.GL_EQUAL -> Math.abs(alpha - alphaRef) <= 0.0001f;
+        case GraphicsOGL.GL_LESS -> alpha < alphaRef;
+        case GraphicsOGL.GL_LEQUAL -> alpha <= alphaRef;
         case GraphicsOGL.GL_ALWAYS -> true;
         default -> true;
     };
@@ -1961,36 +2139,20 @@ private static void multiply(ClipVector out, float[] matrix, float x, float y, f
     );
 }
 
-private int interpolateColor(RasterVertex v0, RasterVertex v1, RasterVertex v2,
-                             float w0, float w1, float w2, float denominator, boolean useBackColor) {
-    int c0 = useBackColor ? v0.backColor : v0.color;
-    int c1 = useBackColor ? v1.backColor : v1.color;
-    int c2 = useBackColor ? v2.backColor : v2.color;
-    if (ogl.shadeModel == GraphicsOGL.GL_FLAT) {
-        return c2;
-    }
-    if (c0 == c1 && c1 == c2) {
-        return c0;
-    }
-    float red = interpolateChannel((c0 >>> 16) & 0xFF, (c1 >>> 16) & 0xFF, (c2 >>> 16) & 0xFF,
-            w0, w1, w2, v0.reciprocalW, v1.reciprocalW, v2.reciprocalW, denominator);
-    float green = interpolateChannel((c0 >>> 8) & 0xFF, (c1 >>> 8) & 0xFF, (c2 >>> 8) & 0xFF,
-            w0, w1, w2, v0.reciprocalW, v1.reciprocalW, v2.reciprocalW, denominator);
-    float blue = interpolateChannel(c0 & 0xFF, c1 & 0xFF, c2 & 0xFF,
-            w0, w1, w2, v0.reciprocalW, v1.reciprocalW, v2.reciprocalW, denominator);
-    float alpha = interpolateChannel((c0 >>> 24) & 0xFF, (c1 >>> 24) & 0xFF, (c2 >>> 24) & 0xFF,
-            w0, w1, w2, v0.reciprocalW, v1.reciprocalW, v2.reciprocalW, denominator);
+private static int interpolateColor(int c0, int c1, int c2,
+                                    float q0, float q1, float q2, float invDenominator) {
+    float red = ((q0 * ((c0 >>> 16) & 0xFF)) + (q1 * ((c1 >>> 16) & 0xFF)) + (q2 * ((c2 >>> 16) & 0xFF)))
+            * invDenominator;
+    float green = ((q0 * ((c0 >>> 8) & 0xFF)) + (q1 * ((c1 >>> 8) & 0xFF)) + (q2 * ((c2 >>> 8) & 0xFF)))
+            * invDenominator;
+    float blue = ((q0 * (c0 & 0xFF)) + (q1 * (c1 & 0xFF)) + (q2 * (c2 & 0xFF)))
+            * invDenominator;
+    float alpha = ((q0 * ((c0 >>> 24) & 0xFF)) + (q1 * ((c1 >>> 24) & 0xFF)) + (q2 * ((c2 >>> 24) & 0xFF)))
+            * invDenominator;
     return (clamp(Math.round(alpha), 0, 255) << 24)
             | (clamp(Math.round(red), 0, 255) << 16)
             | (clamp(Math.round(green), 0, 255) << 8)
             | clamp(Math.round(blue), 0, 255);
-}
-
-private float interpolateChannel(float c0, float c1, float c2,
-                                 float w0, float w1, float w2,
-                                 float reciprocalW0, float reciprocalW1, float reciprocalW2,
-                                 float denominator) {
-    return ((w0 * c0 * reciprocalW0) + (w1 * c1 * reciprocalW1) + (w2 * c2 * reciprocalW2)) / denominator;
 }
 
 private int applyTextureEnvironment(int primaryColor, int sampledColor, OglTexture texture) {
@@ -2629,6 +2791,7 @@ static final class OglTexture {
             for (int i = 0; i < this.pixels.length; i++) {
                 this.pixels[i] = palette[raw[paletteBytes + i] & 0xFF];
             }
+            uploadRevision++;
             return true;
         }
         for (int i = 0; i < this.pixels.length; i += 2) {
@@ -2709,8 +2872,8 @@ static final class OglTexture {
         if (minFilter == GraphicsOGL.GL_LINEAR || magFilter == GraphicsOGL.GL_LINEAR) {
             return bilinearSample(sampledU, sampledV);
         }
-        int x = clamp(Math.round(sampledU * (width - 1)), 0, width - 1);
-        int y = clamp(Math.round(sampledV * (height - 1)), 0, height - 1);
+        int x = clamp((int) (sampledU * (width - 1) + 0.5f), 0, width - 1);
+        int y = clamp((int) (sampledV * (height - 1) + 0.5f), 0, height - 1);
         return pixels[(y * width) + x];
     }
 
@@ -2725,26 +2888,27 @@ static final class OglTexture {
         int y0 = clamp((int) y, 0, height - 1);
         int x1 = x0 + 1 < width ? x0 + 1 : x0;
         int y1 = y0 + 1 < height ? y0 + 1 : y0;
-        int tx = clamp(Math.round((x - x0) * 256f), 0, 256);
-        int ty = clamp(Math.round((y - y0) * 256f), 0, 256);
-        int c00 = pixels[(y0 * width) + x0];
-        int c10 = pixels[(y0 * width) + x1];
-        int c01 = pixels[(y1 * width) + x0];
-        int c11 = pixels[(y1 * width) + x1];
-        int alpha = bilinearChannel(c00, c10, c01, c11, 24, tx, ty);
-        int red = bilinearChannel(c00, c10, c01, c11, 16, tx, ty);
-        int green = bilinearChannel(c00, c10, c01, c11, 8, tx, ty);
-        int blue = bilinearChannel(c00, c10, c01, c11, 0, tx, ty);
-        return (alpha << 24) | (red << 16) | (green << 8) | blue;
-    }
-
-    private static int bilinearChannel(int c00, int c10, int c01, int c11, int shift, int tx, int ty) {
+        int tx = clamp((int) ((x - x0) * 256f + 0.5f), 0, 256);
+        int ty = clamp((int) ((y - y0) * 256f + 0.5f), 0, 256);
         int invTx = 256 - tx;
         int invTy = 256 - ty;
         int w00 = invTx * invTy;
         int w10 = tx * invTy;
         int w01 = invTx * ty;
         int w11 = tx * ty;
+        int c00 = pixels[(y0 * width) + x0];
+        int c10 = pixels[(y0 * width) + x1];
+        int c01 = pixels[(y1 * width) + x0];
+        int c11 = pixels[(y1 * width) + x1];
+        int alpha = bilinearChannel(c00, c10, c01, c11, 24, w00, w10, w01, w11);
+        int red = bilinearChannel(c00, c10, c01, c11, 16, w00, w10, w01, w11);
+        int green = bilinearChannel(c00, c10, c01, c11, 8, w00, w10, w01, w11);
+        int blue = bilinearChannel(c00, c10, c01, c11, 0, w00, w10, w01, w11);
+        return (alpha << 24) | (red << 16) | (green << 8) | blue;
+    }
+
+    private static int bilinearChannel(int c00, int c10, int c01, int c11, int shift,
+                                       int w00, int w10, int w01, int w11) {
         int channel00 = (c00 >>> shift) & 0xFF;
         int channel10 = (c10 >>> shift) & 0xFF;
         int channel01 = (c01 >>> shift) & 0xFF;

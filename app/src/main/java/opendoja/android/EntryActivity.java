@@ -39,9 +39,59 @@ public class EntryActivity extends Activity {
     private volatile long audioGeneration;
 
     @Override
+    protected void attachBaseContext(android.content.Context base) {
+        super.attachBaseContext(AppLanguage.wrap(base));
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
+        AppTheme.apply(this);
         super.onCreate(savedInstanceState);
         OpenDoJaLog.configure(OpenDoJaLog.Level.DEBUG);
+        keymapGameKey = KeyMappingActivity.gameKeyFromJamPath(
+                getIntent() != null ? getIntent().getStringExtra("jamPath") : null);
+        // adb-driven performance measurement:
+        //   am start -n <pkg>/opendoja.android.EntryActivity --es jamPath <abs> --ez traceFramePhases true
+        // FramePhaseTrace caches its enable flag at class load, so the extra must be
+        // present on the process's first launch to take effect.
+        if (getIntent() != null && getIntent().getBooleanExtra("traceFramePhases", false)) {
+            System.setProperty("opendoja.traceFramePhases", "true");
+            System.setProperty("opendoja.showOpenGlesFps", "true");
+            opendoja.host.OpenDoJaLog.info(EntryActivity.class,
+                    "trace property now=" + System.getProperty("opendoja.traceFramePhases"));
+        }
+        // OGL backend selection, read live by OpenDoJaLaunchArgs.openGlesRendererMode():
+        //   am start ... --es renderer hardware   (offscreen ES 1.x context + readback)
+        //   am start ... --es renderer software   (CPU rasterizer)
+        // Without an adb extra the per-game choice from the game settings screen wins;
+        // with neither, the launch defaults apply (hardware).
+        String renderer = getIntent() != null ? getIntent().getStringExtra("renderer") : null;
+        if (renderer == null) {
+            renderer = GameSettingsActivity.rendererOverride(this, keymapGameKey);
+        }
+        if (renderer != null) {
+            System.setProperty("opendoja.openGlesRenderer", renderer);
+            opendoja.host.OpenDoJaLog.info(EntryActivity.class,
+                    "openGlesRenderer property now=" + renderer);
+        } else {
+            // The process is reused across game launches: never let a previous
+            // game's explicit renderer choice leak into this one.
+            System.clearProperty("opendoja.openGlesRenderer");
+        }
+        // C3D batch/draw tracing (read live by C3DGraphics.TRACE_3D_CALLS):
+        if (getIntent() != null && getIntent().getBooleanExtra("debug3dCalls", false)) {
+            System.setProperty("opendoja.debug3dCalls", "true");
+        }
+        if (getIntent() != null && getIntent().getBooleanExtra("traceDrawGeometry", false)) {
+            System.setProperty("opendoja.traceDrawGeometry", "true");
+        }
+        if (getIntent() != null && getIntent().getBooleanExtra("captureFrames", false)) {
+            System.setProperty("opendoja.captureFrames", "true");
+        }
+        if (getIntent() != null && getIntent().hasExtra("effectDebug")) {
+            System.setProperty("opendoja.effectDebug",
+                    Integer.toString(getIntent().getIntExtra("effectDebug", 0)));
+        }
         // The default artifact-derived host root points inside the read-only APK
         // directory; SD-card storage init would fail there and titles like the
         // Touhou "reading SD" screen would wait forever. Keep it in app-private
@@ -51,6 +101,21 @@ public class EntryActivity extends Activity {
         exiting = false;
         input = new JamInputController();
         surfaceView = new JamSurfaceView(this, input);
+        // Screen scaling: an adb extra wins, then the per-game choice from the game
+        // settings screen; without either the picture keeps its aspect ratio.
+        //   am start ... --es displayScale uniform | fill | cover
+        String displayScale = getIntent() != null ? getIntent().getStringExtra("displayScale") : null;
+        if (displayScale == null) {
+            displayScale = GameSettingsActivity.displayScaleMode(this, keymapGameKey);
+        }
+        surfaceView.setScaleMode(JamSurfaceView.scaleModeFromId(displayScale));
+        // Virtual keypad: an adb extra wins, then the per-game choice from the game
+        // settings screen; by default it is shown.
+        //   am start ... --ez keypadVisible false
+        boolean keypadVisible = getIntent() != null && getIntent().hasExtra("keypadVisible")
+                ? getIntent().getBooleanExtra("keypadVisible", true)
+                : GameSettingsActivity.isKeypadVisible(this, keymapGameKey);
+        surfaceView.setKeypadVisible(keypadVisible);
         setContentView(surfaceView);
         DoJaRuntime.setPlatformPresenter(frame -> surfaceView.present(frame));
         // Direct-draw games paint dozens of primitives per frame without lock()/unlock();
@@ -95,11 +160,13 @@ public class EntryActivity extends Activity {
         }
         boolean keypadShown = surfaceView.isKeypadVisible();
         String[] items = {
-                keypadShown ? "隐藏虚拟按键" : "显示虚拟按键",
-                "退出游戏",
+                getString(keypadShown
+                        ? R.string.game_menu_hide_keypad
+                        : R.string.game_menu_show_keypad),
+                getString(R.string.game_menu_exit),
         };
         gameMenu = new android.app.AlertDialog.Builder(this)
-                .setTitle("游戏菜单")
+                .setTitle(R.string.game_menu_title)
                 .setItems(items, (dialog, which) -> {
                     if (which == 0) {
                         surfaceView.setKeypadVisible(!keypadShown);
@@ -239,10 +306,26 @@ public class EntryActivity extends Activity {
                 || name.startsWith("pool-");
     }
 
+    /** Game key (jam basename) for per-game keymap layering; null when no jamPath. */
+    private String keymapGameKey;
+
     private opendoja.host.HostControlAction mappedAction(int keyCode) {
-        java.util.Map<String, ?> bindings = getSharedPreferences(KeyMappingActivity.PREFS_NAME, MODE_PRIVATE)
-                .getAll();
-        for (java.util.Map.Entry<String, ?> entry : bindings.entrySet()) {
+        // Per-game layer shadows the global layer per key press: check the
+        // game's own bindings first, then fall back to the global map.
+        if (keymapGameKey != null) {
+            opendoja.host.HostControlAction action = lookupAction(
+                    getSharedPreferences(KeyMappingActivity.prefsNameForGame(keymapGameKey), MODE_PRIVATE),
+                    keyCode);
+            if (action != null) {
+                return action;
+            }
+        }
+        return lookupAction(getSharedPreferences(KeyMappingActivity.PREFS_NAME, MODE_PRIVATE), keyCode);
+    }
+
+    private static opendoja.host.HostControlAction lookupAction(
+            android.content.SharedPreferences prefs, int keyCode) {
+        for (java.util.Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
             if (entry.getValue() instanceof Integer && (Integer) entry.getValue() == keyCode) {
                 opendoja.host.HostControlAction action = opendoja.host.HostControlAction.fromId(entry.getKey());
                 if (action != null) {
@@ -342,7 +425,8 @@ public class EntryActivity extends Activity {
                     ? throwable.getClass().getSimpleName()
                     : throwable.getMessage();
             runOnUiThread(() -> android.widget.Toast.makeText(this,
-                    "游戏启动失败: " + message, android.widget.Toast.LENGTH_LONG).show());
+                    getString(R.string.toast_game_launch_failed, message),
+                    android.widget.Toast.LENGTH_LONG).show());
         }
     }
 
@@ -354,9 +438,9 @@ public class EntryActivity extends Activity {
                 return jam;
             }
             android.util.Log.w("OpenDoJa", "jamPath missing: " + extra);
-            throw new IllegalStateException("游戏文件不存在: " + extra);
+            throw new IllegalStateException(getString(R.string.error_jam_missing, extra));
         }
-        throw new IllegalStateException("未指定游戏路径 (jamPath)");
+        throw new IllegalStateException(getString(R.string.error_jam_path_required));
     }
 
     @Override
